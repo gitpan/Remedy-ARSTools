@@ -19,8 +19,9 @@
   
 ## Class Global Values ############################ 
   our @ISA = qw(Exporter);
-  our $VERSION = '0.6';
+  our $VERSION = '0.7';
   our $errstr = ();
+  our @EXPORT = qw(&ParseDBDiary &GenerateARSConfig &GetFieldData);
   our @EXPORT_OK = ($VERSION, $errstr);
 
 

@@ -1,34 +1,33 @@
 Revision history for Perl extension RemedyTools.
 
-2.0.1   Thu Apr 18 14:49:05 2002
-    Original AutoSplit Version.
+0.7 05/12/03 21:50:47
+	now exports procedural methods to calling namespace
+	nothing else added/changed, so considder all the "things to do" 
+	from .06 be the things to do for .08
+	procrastination is the mother of intervention.
 
-2.0.2   Fri Jul 5 13:19:58 2002
-    Added complete POD Documentation.
-
-2.0.3   Mon Oct 7 11:17:42 2002
-    Added support for handling specific TCP port numbers via the 'Port' option.
-
-
-** Namespace changed to Remedy::ARSTools for release to CPAN **
-
-
-0.5 Wed Oct 30 11:27:02 2002
-        Initial release to CPAN under Remedy::ARSTools namespace
-        
-        added ParseDiay
-        added ParseDBDiary
-        added support for auto-generating config files at object creation
-        added support for auto-regenerating config files when fields not found
-        modified RefreshConfig
-        added GenerateConfig
-        added GenerateARSConfig
-        added GetFieldData
-        
-        Still To Do:
-            'AutoConfig' automatically refresh ConfigFile upon field data exceptions
-        
-            Write Test Suite.
-        
-            Make complains about GenerateConfig and GenerateARSConfig: that they are
-            not unique when truncated to 8 chars. Fix in next release.
+0.6	05/05/03 21:50:35
+	added TruncateFieldLengths, and Truncate support to CreateTicket and ModifyTicket.
+	Pod updated to reflect new options to CreateTicket and ModifyTicket.
+	-Things To Do for 0.7:
+	add docs to pod for actual TruncateFieldLengths method
+	add better port switching via: ars_SetServerPort(ctrl, serverName, TCPport, RPCnumber)
+	add the self-healing config
+	legit test suite
+	switch GenerateARSConfig to _GenerateARSConfig (fix autosplit problem)
+	
+0.5 Wed 10/30/02 11:27:02
+	initial release to CPAN under Remedy::ARSTools namespace
+	added ParseDiay
+    added ParseDBDiary
+	added support for auto-generating config files at object creation
+	added support for auto-regenerating config files when fields not found
+	modified RefreshConfig
+	added GenerateConfig
+	added GenerateARSConfig
+	added GetFieldData
+    -Still To Do:
+	'AutoConfig' automatically refresh ConfigFile upon field data exceptions
+	Write Test Suite.
+	Make complains about GenerateConfig and GenerateARSConfig: that they are
+	not unique when truncated to 8 chars. Fix in next release.
