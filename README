@@ -1,0 +1,24 @@
+Remedy::ARSTools version 0.5
+========================
+
+This module provides a alternative OO layer for ARSperl. As well as 
+caching of field table data in an external file. See POD.
+
+
+This is a beta release. The following things do not work:
+
+ConfigFile Auto-Refresh:
+   Despiute having the 'AutoConfig' option set, ARSTools.pm will not 
+   attempt to automaticallt refresh the config files when field data
+   appears inaccurate.
+   
+ 
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+

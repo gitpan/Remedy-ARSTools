@@ -1,0 +1,674 @@
+=head1	NAME
+
+Remedy::ARSTools - Provides an object interface to ARSperl (ARS.pm)
+
+
+ARSperl (ARS.pm) provides a perl interface to the C API to Remedy's Action Request System 
+(that is a C API for talking to remedy servers). Remedy::ARSTools provides an object interface to the 
+ARSperl library, as well as providing some enhancements, and other goodies.
+
+One of the most onerous things about using ARSperl, is that you are constantly having to translate 
+field names between their 'name' and 'field id'. The field id is a unique integer assigned to each
+field by the remedy server, to do pretty much anything with the field, you need to know it's field id,
+and of course humans only know the name of the field. All this really ends up meaning that you are 
+all the time having to load a list of field names and field id numbers from the server. For one thing,
+this is network intensive for big forms, it's also wastes time, is a big mess in your code and is
+quite positively annoying. So here's what Remedy::ARSTools does for you:
+
+Using ARSperl, we load the field id's, field names, field lengths, (and a whole bunch of other stuff)
+about every field in a given form or set of forms. Next, using Data::DumpXML this data is dumped to 
+a config file. When a new Remedy::ARSTools object is created, file is then loaded, giving you all the field 
+data you need to do whatever it is you are going to do. I devised this solution when writing some cgi
+scripts that needed to talk to remedy. Loading the field map for each table was taking FOREVER, not
+to mention that the remedy server itself was rather overloaded. Believe me this is WAY faster than 
+pulling the field map from the server repeatedly.
+
+"Ok, but what happens when the field map changes?"
+Remedy::ARSTools has the capability to regenerate the config file when it encounters problems, if the correct
+options are set at instantiaton (see method: new). So for instance if you had th correct options set
+when you created your object, and you requested a field or schema which wasn't in the config, then
+Remedy::ARSTools would automatically download a new field map from the remedy server and store it back in the
+specified config file (if there were any changes).
+
+NOTE: (version 0.5) -- hooks have been added to support auto-refresh of the config file as described
+above. However, auto-refresh has not been enabled. You will still need to refresh the config file
+manually. Hopefully this will be implemented in the next release. (sorry) --Andrew
+
+
+=head1 To Do:
+
+    write test scripts
+
+
+=head1	Dependencies
+
+=over
+
+=item Data::DumpXML				Version 1.03+
+
+=item ARS						Version 1.72+
+
+=back
+
+
+=head1 SYNOPSIS
+
+use Remedy::ARSTools;
+
+$Remedy = Remedy::ARSTools::new(
+    Server         => $server_host_or_ip,
+    User           => $username,
+    Pass           => $password,
+    ConfigFile     => $path_to_and_name_of_config_file
+) || die ($Remedy::ARSTools::errstr);
+
+or if you don't have a config file yet
+
+$Remedy = Remedy::ARSTools::new(
+    Server         => $server_host_or_ip,
+    User           => $username,
+    Pass           => $password,
+    ConfigFile     => $path_to_and_name_of_config_file,
+    GenerateConfig => 1,
+    Schemas        => ['array','of','schemas for', 'the config']
+) || die ($Remedy::ARSTools::errstr);
+
+
+$ticket_number = $Remedy->CreateTicket(
+    Schema	       => $schema_to_create_ticket_in,
+    Fields         => { 'fieldName1' => "value1", 'fieldName2' => "value2 ...etc }
+) || die $Remedy->{'errstr'};
+
+$Remedy->modifyTicket(
+    Ticket		   => $ticket_number_to_modify,
+    Schema		   => $schema_in_which_ticket_exists,
+    Fields		   => { 'fieldName1' => 'newvalue1' ... etc }
+) || die $Remedy->{'errstr'};
+
+$Remedy->deleteTicket(
+    Ticket         => $ticket_number_to_delete,
+    Schema		   => $schema_in_which_ticket_exists
+) || die $Remedy->{'errstr'};
+
+$results = $Remedy->Query(
+    QBE            => $remedy_query_string,
+    Schema         => $schema_to_retrieve_results_from,
+    Fields		   => ['array', 'of', 'fieldNames', 'to', 'retrieve']
+) || die $Remedy->{'errstr'};
+
+$parsed_diary = $Remedy->ParseDiary(
+    Diary		   => $raw_diary_data_from_database,
+) || die $Remedy->{'errstr'};
+
+$Remedy->Destroy();
+
+
+=head1	new
+
+=head2 Notes
+
+This is the object constructor. Upon failure, the method will return the undef value, and an error
+message will be written to $Remedy::ARSTools::errstr. At object creation, we load the specified config 
+file containing the field map, and login to the speicified remedy server.
+
+=head2 Synopsis
+
+ $Object = Remedy::ARSTools::New([options]) || die $Remedy::ARSTools::errstr;
+
+=head2 Options
+
+=over
+
+=item Server		(required)
+
+The hostname of the remedy server to login to.
+
+=item Port
+
+This option specifies a TCP port on which to communicate with the specified remedy server.
+The ARS module handles this by setting $ENV{'ARTCPPORT'}. If you have muliple Remedy::ARSTools 
+objects, then this will still play nice, mostly. I've done this by setting the ENV
+variable just prior to the ARS operation. If the 'Port' isn't specified then it deletes the 
+ENV variable. SO, multiple objects will play nice on different port numbers as long as
+you don't try more than one ARS operation at once. This is a really bad kludge.
+You have been warned: check yo' self before ya wreck yo' self if you need multiple objects
+and one or more of them need the Port option.
+
+=item User			(required)
+
+The username to use to login to 'Server'
+
+=item Pass			(required)
+
+The passowrd associated with 'User'
+
+=item ConfigFile	(required)
+
+This should be the full path to and name of the file which contains (or will contain) the configuration
+data for the schemas you will be using. If you need to generate a new config file (that is, the file
+does not yet exist), be sure to set 'GenerateConfig' to a non-zero value, and to suppliy a list of 
+schemas for which to retrieve information on the the 'Schemas' option.
+
+=item GenerateConfig (required to generate ConfigFile)
+
+If this option is set to a non-zero value, and the file specified on ConfigFile does not exist,
+Remedy::ARSTools will attempt to retrieve field data for all the schemas listed onthe 'Schemas' option, and 
+write the data to the file specified on ConfigFile.
+
+=item Schemas
+
+This should be a refernce to an array containing a list of schemas to retreive field data for and store
+in the new config file. Make sure to include all the schemas you are likely to use. If this option is
+left undefined, a list of ALL schemas availabel to the user you login with will be retrieved from the
+server.
+
+=item LoginOverride
+
+If this option is set to a non-zero value, then Remedy::ARSTools will not attempt to login to the specified
+server automatically. Keep in mind that you will have to manually tell Remedy::ARSTools to login via the 
+ARSLogin method if you want to use any methods that talk to the remedy server.
+
+=item Debug
+
+If this option is set to a non-zero value, then debug information is sent to stdout.
+
+=item CanDelete
+
+Unless this option is set to a non-zero value, the object created will be incapable of executing the
+'DeleteTicket' method. Remember to always keep your weapon on safety, unless there's a good reason not 
+to.
+
+
+=back
+
+
+
+=head1	LoadARSConfig
+
+=head2 Notes
+
+This method will load the specified config file containing field data. Normally this is called
+internally durring new to load the specified 'ConfigFile'. However you can call this method externally
+on a pre-existing object if you need to load new field data. Keep in mind that any existing field data
+is overwritten by the new data when you use this method.
+
+=head2 Synopsis
+
+ $Object->LoadARSConfig([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item File	(required)
+
+The filename of the config file containing field data that you want to load.
+
+=back
+
+
+
+
+=head1	ARSLogin
+
+=head2 Notes
+
+Login to the specified remedy server. This method is typically called internally in the 'new' method.
+However it may be called externally if the LoginOverride option is set at object creation.
+
+=head2 Synopsis
+ $Object->ARSLogin() || die $Object->{errstr};
+ 
+=head2 Options
+
+=over
+
+=item none
+
+=back
+
+
+
+=head1	Destroy
+
+=head2	Notes
+
+Log out of the remedy server, and destroy the object. You should call this before exiting any programs
+which use Remedy::ARSTools.
+
+=head2 Synopsis
+
+ $Object->Destroy();
+
+=head2 Options
+
+=over
+
+=item none
+
+=back
+
+
+
+=head1	CheckFieldLengths
+
+=head2 Notes
+
+This method is called internally. You should not need to call it externally, unless you really want to.
+This checks given field values against the field data from from the config file. First we check to make
+sure we "know" all of the given fields, that is that all of the given fields appear in the config data.
+If that's all-good, next we check each given field value against the max length in the config data
+if any of the given values are too long, then we send an error. Also if there are any enum fields, we
+check that the given enum is within the range of legal enums given in the config file, if we find any
+strangeness there we also send an error.
+
+Now, there is something about this method that breaks the rules sort of. If there are no errors found 
+in the given data, then we return undef with a $self->{errstr} of "ok". If there is some sort of other
+error, like a field being presented which does not exist in the config, then we also return undef
+but with a differnet $self->{errstr}. If there are errors found in the data we return a string 
+containing a list of all the errors. It's not as confusing as it sounds, check out the Synopsis:
+
+=head2 Synopsis
+
+ if ($errors = CheckFieldLengths([options])){
+     die $errors;
+ }elsif ($self->{errstr} eq "ok"){
+     print  "no errors in data\n";
+ }else{
+     die $self->{errstr};
+ }
+
+=head2 Options
+
+=over
+
+=item Fields	(required)
+
+This is a hash reference containing field names and values to be checked. Each key of the hash should
+be the field name, and of course the value for the key should be the value to be tested for that 
+field.
+
+=item Schema	(required)
+
+The name of the schema (also called 'Form' these days) that you want to check the field values against.
+
+=back
+
+
+
+=head1	CreateTicket
+
+=head2 Notes
+
+Create a ticket in the given Schema (aka 'Form') with the given field values.
+
+=head2 Synopsis
+
+ $ticket_number = $Object->CreateTicket([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Fields	(required)
+
+This should be a hash reference containing the field names and field values to be set in the new
+ticket. You may find it convienient to build the hash reference inline with the function call like
+this:
+
+ Fields => {'field1' => $value1, 'field2' => $value2 }
+
+=item Schema	(required)
+
+ This should be the name of the Schema (aka 'Form') that you wish to create the ticket in.
+
+=back
+
+
+
+=head1	ModifyTicket
+
+=head2 Notes
+
+Modify the given existing ticket with the given field values.
+
+=head2 Synopsis
+
+ $Object->ModifyTicket([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Ticket	(required)
+
+The existing ticket number (aka 'entry id', 'record number') to modify. 
+
+=item Schema	(required)
+
+The schema (aka 'Form') that the given ticket number exists in.
+
+=item Fields	(required)
+
+A hash reference containing field values to place in the given ticket. You may wish to build the 
+hash reference inline with the function call (example in 'CreateTicket').
+
+=back
+
+
+
+=head1	DeleteTicket
+
+=head2 Notes
+
+Delete the given ticket from the given schema. Of course this will only delete tickets if the username
+you gave in 'New' has permission to delete tickets. As an additional safeguard against disaster, you 
+must set the 'CanDelete' option to a nonzero value in the New command, to create an object capable of
+deleting tickets. (see 'New').
+
+=head2 Synopsis
+
+ $Object->DeleteTicket([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Ticket	(required)
+
+The ticket number (aka 'entry-id', 'record number') of the ticket you wish to delete.
+
+=item Schema	(required)
+
+The Schema (aka 'Form') in which exists the 'Ticket' you are trying to delete.
+
+=back
+
+
+
+=head1	Query
+
+=head2 Notes
+
+You really shouldn't use this. You should get a read-only database account with select access on the
+aradmin views, and use something like DBIx::YAWM to query the database directly. Using the ARS layer to 
+query presents a LOT more overhead than directly querying the underlying database. Not only overhead
+on the machine executing the code, but also on the remedy server itself, impacting the performance
+for the users using the ARUser tool, who have no choice but to query via the ARS layer. As a matter of
+policy, I personally will not build any automated processes which query via the ARS layer. The only
+thing which should query via ARS is ARS itself. By sticking to this policy I have managed to run
+pretty big and heavily used remedy servers on pretty modest hardware. To sum it up DON'T USE THIS.
+But, anyhow, you might have to use this, so here it is. If you hose your remedy server ... don't say
+I didn't tell you. ;-)
+
+Data is returned as a reference to an array of hashes. Each nested hash represents a record returned
+from the query. Each key in the hash is a (human readable) field name, and of course the associated
+value is the value of that field.
+
+=head2 Synopsis
+
+ $data = $Object->Query([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item QBE
+
+This is the proprietary 'query string' as you would enter it via the ARUser tool. "QBE" stands for
+"Query By Example", which is buzzword that Remedy uses to describe it's system of querying in the 
+ARUser GUI tool. The string which is derived from the 'Query By Example' process is generally called
+a 'QBE String' Hence the name. Basically analagous to a 'where' clause in SQL ... basically.
+
+=item Schema
+
+The schema (aka 'Form') that you wish to query records from
+
+=item Fields
+
+An array reference containing a list of field you wish to retrieve from the query. Sort of analagous
+to 'Select' in an SQL string. You may find it helpful to build the array reference inline with the 
+function call like so:
+ 
+ Fields => ['field1','field2','field3']
+ 
+=back
+
+
+
+=head1 RefreshARSConfig
+
+=head2 Notes
+
+Generate the data structure containing the field data that you would want to dump via Data::DumpXML to
+a config file so you could load it later. This is where you would refresh the config if you ever
+needed to. The field data is loaded directly into the object.
+
+=head2 Synopsis
+
+ $Object->RefreshARSConfig([options]) || die $self->{errstr};
+
+=head2 Options
+
+=over
+
+=item Schemas	(required)
+
+A list of schemas (aka 'Forms') to retrieve field data for.
+
+=back
+
+
+=head1 ParseDiary
+
+=head2 Notes
+
+This is one of those routines that dosen't seem to fit in anywhere perfectly. I included it in 
+Remedy::ARSTools, because ... well, it's dern handy, and this seemd to be as good of a place as any for it.
+If you took my advice from the notes on 'Query' and decided to do your queries directly from the
+database used by your remedy server, then you might run into some problems with diaries. Remedy stores
+the diary as one big ol' text field. Which is a problem, because as you are probably aware, the diary
+has a timestamp and user associated with each entry. So what you get when you select a diary field from
+your database, is each diary entry separated by some trash. This 'trash' is the username and timestamp.
+So what this does is to parse a raw diary format into the same format as you would get if you had
+queried a diary field via ARS (i.e. the same format as returned by ARS::getField.). That format is
+an array reference. Each element in the array is, in turn, a hash reference. Each nested hash contains
+three fields 'timestamp', 'user', and 'value'. Oh yeah, and the Array is sorted chronologically, with
+the earliest entries first. Here's another look at what the data-structure looks like:
+
+\@DIARY = [
+    { 'timestamp' => $date, 'user' => $user, 'value' => $diary_entry }
+    ...
+];
+
+=head2 Synopsis
+
+$data = $Object->ParseDiary([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Diary (required)
+
+A string containing the raw diary data from the database.
+
+=back
+
+
+=head1 ParseDBDiary
+
+=head2 Notes
+
+Ok so if you want to use ParseDiary, but don't want to create an object, you can use this procedural
+method. This does the same thing as ParseDiary, except you don't need to call it on an object.
+
+=head2 Synopsis
+
+$data = Remedy::ARSTools::ParseDBDiary([options]) || die $Remedy::ARSTools::errstr;
+
+=over
+
+=item Diary (required)
+
+A string containing the raw diary data from the database.
+
+=back
+
+
+=head1 RefreshConfig
+
+=head2 Notes
+
+This method is usually called internally, when data is requested which isn't in the config file. You 
+remember, the one I was talking about way back at the top of the doc, that holds all the field data.
+Yeah, THAT one. ;-) Anyhow, you can call it too if you want. What this does, is to pull all of the
+field data again from the remedy server, and compare it to the data we already have. If the data is
+different, we use the new data and also stash it in the config file for next time.
+
+=head2 Synopsis
+
+$Object->RefreshConfig([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item WriteFile
+
+if this option is set to a non-zero value than new data is written back to ConfigFile if it differs
+from the existing data. If this is not set, then the new data used, but but not updated in ConfigFile
+
+=back
+
+=head1 GenerateConfig
+
+=head2 Notes
+
+This is another method you won't probably have the opportunity or need to use, as it is called
+internally. When the file specified on ConfigFile at object instantiation does not exist, and
+'GenerateConfig' is set to a non-zero value, this is the bit that goes and fetches the field data
+for all the schemas specified on the 'Schemas' option and stashes it in the ConfigFile. Don't 
+worry about this, if you need to make a new config file the easiest thing to do is just to call new
+as described above, or if you don't want to create an object, you could use GenerateARSConfig. What is
+that? You say you want to know all about it anyhow? Well here you go mucacho, or muchacha:
+
+=head2 Synopsis
+
+$Object->GenerateConfig([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Server
+
+same as new. the server or ip to connect to. if this is left null, then we use the value from the 
+current object.
+
+=item User
+
+same as new. the user to connect as. if this is left null, then we use the value from the 
+current object.
+
+=item Pass
+
+same as new. password for User. if this is left null, then we use the value from the current object.
+
+=item ConfigFile
+
+the file to write the config data to. if this is left null, then we use the value from the current
+object.
+
+=item Schemas
+
+array reference containing list of schemas to retreive data for. if this is left null, then we use the 
+value from the current object.
+
+=item Port
+
+same as new. port to connect to server on. if this is left null, then we use the value from the 
+current object.
+
+=back
+
+=head1 GenerateARSConfig
+
+=head2 Notes
+
+Ok, so for some reason, you would like to create a config file for a given set of schemas on a
+remedy server, but you don't want to be bothered with needing to create an object and all that
+stuff. You just want to login, get the info, dump it, and move on. Well then, you can just use this
+procedural method instead!
+
+=head2 Synopsis
+
+Remedy::ARSTools::GenerateARSConfig([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Server (required)
+
+the server hostname or ip to connect to
+
+=item User (required)
+
+the user to connect as
+
+=item Pass (required)
+
+the password for User
+
+=item ConfigFile (required)
+
+the file where you would like to dump said data
+
+=item Schemas (required)
+
+array reference containing list of schemas to get field data for
+
+=item Port (optional)
+
+a specific TCP port on which to connect to Server
+
+=back
+
+=head1 GetFieldData
+
+=head2 Notes
+
+Seeing as how there are SO DERN MANY methods for retrieving field data, I busted the bit that actually
+does the retreiving into it's own subroutine so that everyone could share. You really don't need to worry
+about this.
+
+=head2 Synopsis
+
+$data = Remedy::ARSTools::GetFieldData([options]) || die $Object->{errstr};
+
+=head2 Options
+
+=over
+
+=item Schemas
+
+the ubiquitous array reference containing a list of schemas from which to retrieve field data.
+
+=item CTRL
+
+the ARS control token. You would get one of these from ARSLogin.
+
+=back
+
+=head1 Continuum Transfunctioner
+
+=head2 Notes
+
+It's mystery is only exceeded by it's power.
+
+
+=head1 Author: 
+
+Andrew N. Hicox	<andrew@hicox.com>
+http://www.hicox.com
