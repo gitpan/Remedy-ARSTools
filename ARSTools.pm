@@ -19,7 +19,7 @@
   
 ## Class Global Values ############################ 
   our @ISA = qw(Exporter);
-  our $VERSION = '0.5';
+  our $VERSION = '0.6';
   our $errstr = ();
   our @EXPORT_OK = ($VERSION, $errstr);
 
@@ -211,24 +211,24 @@ sub CheckFieldLengths {
          (! exists ($p{'Fields'})) || 
          (! exists ($p{'Schema'}))
      ){  
-         $self->{errstr} = "_CheckFieldLengths missing required data.";
+         $self->{errstr} = "CheckFieldLengths missing required data.";
          return (undef);
      }
     #check that Fields is a hash ref
      if (ref($p{'Fields'}) ne "HASH"){
-         $self->{errstr} = "_CheckFieldLengths: Fields must be a hash reference";
+         $self->{errstr} = "CheckFieldLengths: Fields must be a hash reference";
          return (undef);
      }
     #make sure we "know" the schema
      if (! exists ($self->{ARSConfig}->{$p{'Schema'}})){
-         $self->{errstr} = "_CheckFieldLengths: I don't know the schema: $p{'Schema'}";
+         $self->{errstr} = "CheckFieldLengths: I don't know the schema: $p{'Schema'}";
          return (undef);
      }
     #loop through the fields
      foreach (keys %{$p{Fields}}){
         #make sure we "know" the field
          unless (exists ($self->{ARSConfig}->{$p{Schema}}->{fields}->{$_})){
-             $self->{errstr} = "_CheckFieldLengths: I don't know this field: $_ in this schema: $p{Schema}";
+             $self->{errstr} = "CheckFieldLengths: I don't know this field: $_ in this schema: $p{Schema}";
              return (undef);
          }
         #check the length
@@ -241,20 +241,20 @@ sub CheckFieldLengths {
              (length($p{Fields}->{$_}) <= $self->{ARSConfig}->{$p{Schema}}->{fields}->{$_}->{length})
          ){
             #something was too big
-             $errors .= "_CheckFieldLengths: $_ too long (max length is $self->{ARSConfig}->{$p{Schema}}->{fields}->{$_}->{length})\n";
+             $errors .= "CheckFieldLengths: $_ too long (max length is $self->{ARSConfig}->{$p{Schema}}->{fields}->{$_}->{length})\n";
          }
         #if field is an enum, make sure value is allowed
          if ($self->{ARSConfig}->{$p{Schema}}->{fields}->{$_}->{enum}){
             #of course, the value must be a number!
              unless ($p{Fields}->{$_} =~/\d+/){
-                 $errors .= "_CheckFieldLengths: $_ is an enumerated field, send the enum, not the string";
+                 $errors .= "CheckFieldLengths: $_ is an enumerated field, send the enum, not the string";
              }
             #make sure the enum is not out of range
              if (
                  ($p{Fields}->{$_} < 0) ||
                  ($p{Fields}->{$_} > $#{$self->{ARSConfig}->{$p{Schema}}->{fields}->{$_}->{vals}})
              ){
-                 $errors .= ":_CheckFieldLengths $_ enum is out of range";
+                 $errors .= ":CheckFieldLengths $_ enum is out of range";
              }
          }
      }
