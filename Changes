@@ -1,33 +1,63 @@
-Revision history for Perl extension RemedyTools.
+Revision history for Perl extension Remedy::ARSTools.
 
-0.7 05/12/03 21:50:47
-	now exports procedural methods to calling namespace
-	nothing else added/changed, so considder all the "things to do" 
-	from .06 be the things to do for .08
-	procrastination is the mother of intervention.
+1.0		Mon Nov 13 20:59:52 GMT 2006
+		complete re-write. should work for all versions of ARSperl.
+		a lot of things changed, a lot of things stayed the same.
+		
+			- now works without a config file (but faster WITH one)
+			- reloads field definition data when missing config data
+			- automatically reconnects on ARERR161 type errors
+			- converts strings to integers for enum fields
+			- removed snarky comments
+			- rewrote documentation, removed even more snarky comments
+			- removed 'timeout' option
+			
+0.92	Tue Oct 17 21:45:35 GMT 2006
+		added 'timeout' option. If set, the control structure is reloaded if last access 
+		was more than that long ago
+		goddam this module needs a rewrite like a new set of drawers. it's FUNKY in there! ;-)
 
-0.6	05/05/03 21:50:35
-	added TruncateFieldLengths, and Truncate support to CreateTicket and ModifyTicket.
-	Pod updated to reflect new options to CreateTicket and ModifyTicket.
-	-Things To Do for 0.7:
-	add docs to pod for actual TruncateFieldLengths method
-	add better port switching via: ars_SetServerPort(ctrl, serverName, TCPport, RPCnumber)
-	add the self-healing config
-	legit test suite
-	switch GenerateARSConfig to _GenerateARSConfig (fix autosplit problem)
+0.91	Tue Mar 21 16:16:25 GMT 2006	
+		modified checkFieldLengths to accept blessed references on the Fields argument.
+
+0.9		Fri Jul  9 09:46:50 EDT 2004
+		well crap! 0.6 sais I added truncate, but damn if I can find it in the code
+		now ... added the TruncateOK => 1 option to CheckFieldLengths that will 
+		truncate long fields. CreateTicket and ModifyTicket will pass this option
+		allong to CheckFieldLengths.
+
+0.8		01/30/04 16:12:02
+		still carrying all the "things to do"
+		CreateTicket now spews field value submissions in Debug mode
+
+0.7 	05/12/03 21:50:47
+		now exports procedural methods to calling namespace
+		nothing else added/changed, so considder all the "things to do" 
+		from .06 be the things to do for .08
+		procrastination is the mother of intervention.
+
+0.6		05/05/03 21:50:35
+		added TruncateFieldLengths, and Truncate support to CreateTicket and ModifyTicket.
+		Pod updated to reflect new options to CreateTicket and ModifyTicket.
+		-Things To Do for 0.7:
+		add docs to pod for actual TruncateFieldLengths method
+		add better port switching via: ars_SetServerPort(ctrl, serverName, TCPport, RPCnumber)
+		add the self-healing config
+		legit test suite
+		switch GenerateARSConfig to _GenerateARSConfig (fix autosplit problem)
 	
-0.5 Wed 10/30/02 11:27:02
-	initial release to CPAN under Remedy::ARSTools namespace
-	added ParseDiay
-    added ParseDBDiary
-	added support for auto-generating config files at object creation
-	added support for auto-regenerating config files when fields not found
-	modified RefreshConfig
-	added GenerateConfig
-	added GenerateARSConfig
-	added GetFieldData
-    -Still To Do:
-	'AutoConfig' automatically refresh ConfigFile upon field data exceptions
-	Write Test Suite.
-	Make complains about GenerateConfig and GenerateARSConfig: that they are
-	not unique when truncated to 8 chars. Fix in next release.
+0.5 	Wed 10/30/02 11:27:02
+		initial release to CPAN under Remedy::ARSTools namespace
+		added ParseDiay
+   	 	added ParseDBDiary
+		added support for auto-generating config files at object creation
+		added support for auto-regenerating config files when fields not found
+		modified RefreshConfig
+		added GenerateConfig
+		added GenerateARSConfig
+		added GetFieldData
+    	-Still To Do:
+		'AutoConfig' automatically refresh ConfigFile upon field data exceptions
+		Write Test Suite.
+		Make complains about GenerateConfig and GenerateARSConfig: that they are
+		not unique when truncated to 8 chars. Fix in next release.

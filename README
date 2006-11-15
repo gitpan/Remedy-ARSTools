@@ -1,17 +1,16 @@
-Remedy::ARSTools version 0.5
-========================
+Remedy::ARSTools
+================
+
+This module provides a simplified object interface for ARSperl, with 
+field definition data caching thrown in as well. 
+
+YOU NEED ARSperl INSTALLED FOR THIS MODULE TO WORK.
+Please refer to the included POD documentation.
 
 This module provides a alternative OO layer for ARSperl. As well as 
 caching of field table data in an external file. See POD.
 
-
-This is a beta release. The following things do not work:
-
-ConfigFile Auto-Refresh:
-   Despiute having the 'AutoConfig' option set, ARSTools.pm will not 
-   attempt to automaticallt refresh the config files when field data
-   appears inaccurate.
-   
+This should be considdered a stable release.
  
 INSTALLATION
 

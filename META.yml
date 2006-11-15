@@ -1,0 +1,12 @@
+# http://module-build.sourceforge.net/META-spec.html
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         Remedy-ARSTools
+version:      1
+version_from: ARSTools.pm
+installdirs:  site
+requires:
+    ARS:                           1.72
+    Data::DumpXML:                 1.03
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.17
