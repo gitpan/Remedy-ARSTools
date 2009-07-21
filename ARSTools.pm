@@ -21,7 +21,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.0;
+$VERSION	= 1.01;
 
 
 
@@ -205,7 +205,7 @@ sub ARSLogin {
 	my $self = shift();
 	
 	#actually, just distribute the call based on the ARSperl version
-	if ($ARS::VERSION < 8.001){
+	if ($ARS::VERSION < 1.8001){
 		return ($self->ARSLoginOld(@_));
 	}else{
 		return ($self->ARSLoginNew(@_));
@@ -222,7 +222,7 @@ sub Query {
 	my $self = shift();
 	
 	#actually, just distribute the call based on the ARSperl version
-	if ($ARS::VERSION < 8.001){
+	if ($ARS::VERSION < 1.8001){
 		return ($self->QueryOld(@_));
 	}else{
 		return ($self->QueryNew(@_));
@@ -681,7 +681,7 @@ sub ParseDBDiary {
 
 
 ## ARSLoginOld ####################################
-## for ARSPerl installs < 8.001
+## for ARSPerl installs < 1.8001
 sub ARSLoginOld {
 	
 	my ($self, %p) = @_;
@@ -720,7 +720,7 @@ sub ARSLoginOld {
 
 
 ## ARSLoginNew ####################################
-## for ARSperl installs >= 8.001
+## for ARSperl installs >= 1.8001
 sub ARSLoginNew {
 my ($self, %p) = @_;
 	
@@ -765,7 +765,7 @@ my ($self, %p) = @_;
 ## 'where' clause. Also NOTE: that this will present
 ## significantly more overhead than directly querying
 ## the database, but I presume you have your reasons ... ;-)
-## do it using the pre 8.001 argument list for ars_getListEntry
+## do it using the pre 1.8001 argument list for ars_getListEntry
 sub QueryOld {
 	my ($self, %p) = @_;
 	
@@ -954,7 +954,7 @@ sub QueryOld {
 ## 'where' clause. Also NOTE: that this will present
 ## significantly more overhead than directly querying
 ## the database, but I presume you have your reasons ... ;-)
-## do it with post 8.001 ars_getListEntry argument list
+## do it with post 1.8001 ars_getListEntry argument list
 sub QueryNew {
 	my ($self, %p) = @_;
 	

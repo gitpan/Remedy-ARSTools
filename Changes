@@ -1,5 +1,8 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.01		Mon Jul 20 20:12:36 CDT 2009
+		fixed problem with matching ARSPerl version number
+
 1.0		Mon Nov 13 20:59:52 GMT 2006
 		complete re-write. should work for all versions of ARSperl.
 		a lot of things changed, a lot of things stayed the same.
