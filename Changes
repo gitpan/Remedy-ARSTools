@@ -1,5 +1,8 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.02            Mon Nov 14 18:19:17 EST 2011
+                added Merge function
+
 1.01		Mon Jul 20 20:12:36 CDT 2009
 		fixed problem with matching ARSPerl version number
 

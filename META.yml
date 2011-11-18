@@ -1,12 +1,23 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         Remedy-ARSTools
-version:      1
-version_from: ARSTools.pm
-installdirs:  site
+--- #YAML:1.0
+name:               Remedy-ARSTools
+version:            1.02
+abstract:           a perl wrapper to the ARSperl project, providing a simplified object interface with field
+author:
+    - Andrew N. Hicox <andrew@hicox.com>
+license:            unknown
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
 requires:
-    ARS:                           1.72
-    Data::DumpXML:                 1.03
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+    ARS:            1.72
+    Data::DumpXML:  1.03
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.57_05
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4

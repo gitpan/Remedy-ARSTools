@@ -29,6 +29,17 @@ definition caching.
 		}
 	) || die $Remedy->{'errstr'};
 	
+	#merge ticket
+	my $ticket_number = $Remedy->MergeTicket(
+	        Schema           => $schema_name,
+	        MergeCreateMode  => "Overwrite",
+	        Fields	         => { 
+			'fieldName1' => "value1", 
+			'fieldName2' => "value2,
+			... etc ...
+		}
+        ) || die $Remedy->{'errstr'};
+	
 	#modify a ticket
 	$Remedy->ModifyTicket(
 		Schema	=> $schema_name,
@@ -457,7 +468,71 @@ be converted from 'epoch' time to the local time zone set in the 'locale' on you
 
 =back
 
-=head1	EXAMPLE
+=head1 MergeTicket
+
+Pretty much the same thing as CreateTicket, but with a merge transaction, allowing you all of the freedoms
+and responsibilities that come with that (for heaven's sake: be careful, mmmkay?).
+
+The returned value is one of two things. If you are in MergeMode = 'Create' or 'Error', this will return the
+entry_id (i.e. "ticket number, aka "field id = 1") of the record you just merged. If you are in 
+MergeMode = "Overwrite", AND the entry_id value you specified already exists this will contain the string
+"overwritten" (you may now see my point about being careful).
+
+=head2  syntax
+
+        my $ticket_number = $Remedy->MergeTicket( [options] ) || die $Remedy->{'errstr'}
+
+=head2  options
+
+=over
+
+=item   Schema
+
+the name of the schema (i.e. "form") in which the record should be merged.
+
+=item   Fields
+
+a hash reference in the form of { 'field_name' => $value ... }, where each 'field_name' is the name of a
+field in 'Schema' and each $value is a value to place in that field. Just like CreateTicket
+
+=item   MergeCreateMode
+
+this controls what happens when the record you want to merge has the same value for field_id = 1 as an existing
+record. That is to say, what happens in the situation where you specify an existing ticket number on Fields. There
+are three values:
+
+=over
+
+=item   Error
+
+Throw an error and exit if there is an existing record in the spefified Schema with the same ticket number
+
+=item   Create
+
+Create a new record with a different ticket number. So, basically ignore your speficied field_id = 1 (ticket number) value
+and create a new record with the rest of the field values, and return the new ticket number.
+
+=item   Overwrite
+
+This is the funny biznezz. If you specify this option, it will overwrite the existing ticket number with your values, and
+the function will return "overwritten" instead of a ticket number. You have been warned :-).
+
+=back
+
+=item   AllowNullFields
+
+if you specify a non-null value on this option, it will give the API permission to bypass required fields (excepting of course
+the ARS system fields ... 'status', 'short description', yadda yadda).
+
+=item   SkipFieldPatternCheck
+
+if you specify a non-null value on this option, it will give the API permission to bypass field pattern checking (menus, etc).
+Obviously, it will not let you set out of range enums and the like, but you'd never get that far anyhow ... this module would
+throw a field check error before that, but I digress. Set this if you want to set goofy field values and get away with it.
+
+=back
+        
+=head1	EXAMPLES
 
 #create a new ticket in Users schema
 my $ticket_number = $Remedy->CreateTicket(
@@ -501,7 +576,7 @@ $Remedy->Destroy();
 =head1	AUTHOR
 
 Andrew N. Hicox	<andrew@hicox.com>
-Hicox Information Systems LLC
+Sutio BootyQuake
 http://www.hicox.com
 
 

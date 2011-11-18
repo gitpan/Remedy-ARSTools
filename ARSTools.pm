@@ -21,7 +21,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.01;
+$VERSION	= 1.02;
 
 
 
@@ -58,10 +58,10 @@ sub new {
 	
 	#load config file
 	$self->LoadARSConfig() || do {
-        $errstr = $self->{'errstr'};
-        warn ($errstr) if $self->{'Debug'};
-        return (undef);
-    };
+	        $errstr = $self->{'errstr'};
+	        warn ($errstr) if $self->{'Debug'};
+	        return (undef);
+	};
 	
 	#get a control token (unless 'LoginOverride' is set)
 	unless ($self->{'LoginOverride'}){
@@ -125,7 +125,7 @@ sub LoadARSConfig {
 				#get meta-data
 				(my $tmp = ARS::ars_GetField(
 					$self->{'ctrl'},	#control token
-					$_,					#schema name
+					$_,			#schema name
 					$fields{$field}		#field id
 				)) || do {
 					$self->{'errstr'} = "LoadARSConfig: can't get field meta-data for " . $_ . " / " . $field .
@@ -134,12 +134,41 @@ sub LoadARSConfig {
 					return (undef);		  
 				};
 				
-				if (ref($tmp->{'limit'}) eq "HASH"){
-					$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'length'} = $tmp->{'maxLength'};
-				}elsif ((ref($tmp->{'limit'}) eq "ARRAY") && ($tmp->{'dataType'} eq "enum")){
-					$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'enum'} = 1;
-					$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'} = $tmp->{'limit'};
-				}
+				
+				## NEW HOTNESS (1.02)
+				## depending on the C-api version that ARSperl was compiled against, the data we're looking 
+				## for may be in one of two locations. We'll check both, and take the one that has data
+				if ( defined($tmp->{'dataType'}) ){
+				        if ($tmp->{'dataType'} eq "enum"){
+				                #handle enums
+				                $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'enum'} = 1;
+				                if (ref($tmp->{'limit'}) eq "ARRAY"){
+				                        #found it in the old place
+				                        $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'} = $tmp->{'limit'};
+                                                }elsif ( defined($tmp->{'limit'}) && defined($tmp->{'limit'}->{'enumLimits'}) && ( ref($tmp->{'limit'}->{'enumLimits'}->{'regularList'}) eq "ARRAY")){
+                                                        #found it in the new place
+                                                        $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'} = $tmp->{'limit'}->{'enumLimits'}->{'regularList'};
+                                                }else {
+                                                        #didn't find it at all
+                                                        $self->{'errstr'} = "LoadARSConfig: I can't find the enum list for this field! " . $field . "(" . $fields{$field} . ")";
+                                                        warn($self->{'errstr'}) if $self->{'Debug'};
+                                                        return (undef);
+                                                }
+				        }else{
+				                #handle everything else (we rolls like that, yo)
+				                if ( defined($tmp->{'maxLength'}) && ($tmp->{'maxLength'} =~/^\d+$/)){
+				                        #found it in the old place
+				                        $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'length'} = $tmp->{'maxLength'};
+                                                }elsif (defined($tmp->{'limit'}) && defined($tmp->{'limit'}->{'maxLength'}) && ($tmp->{'limit'}->{'maxLength'} =~/^\d+$/)) {
+                                                        #found it in the new place
+                                                        $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'length'} = $tmp->{'limit'}->{'maxLength'};
+                                                }
+				        }
+                                }else{
+                                        $self->{'errstr'} = "LoadARSConfig: I can't find field limit data on this version of the API!";
+                                        warn($self->{'errstr'}) if $self->{'Debug'};
+                                        return (undef);
+                                }
 			}
 		}
 		
@@ -1136,19 +1165,131 @@ sub QueryNew {
 }
 
 
+## MergeTicket ###################################
+## just like CreateTicket, but a Merge transaction
+## Fields                       list o' fields (same as CreateTicket)
+## Schema                       target form for the transaction (same as CreateTicket)
+## MergeCreateMode              specifies how to handle record creation if the specified entry-id (fieldid 1) value exists"
+##      'Error'                 -- throw an error
+##      'Create'                -- spawn new (different) entry-id value
+##      'Overwrite'             -- overwrite the existing entry-id
+## AllowNullFields              (default false) if set true, allows the merge transaction to bypass required non-null fields
+## SkipFieldPatternCheck        (default false) if set true, allows the merge transaction to bypass field pattern checking
+sub MergeTicket {
+        
+        my ($self, %p) = @_;
+	
+	#Fields, Schema, MergeMode are required
+	foreach ('Fields', 'Schema', 'MergeCreateMode'){ 
+		if (! exists($p{$_})){ 
+			$self->{'errstr'} = "MergeTicket: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#handle MergeMode
+	my $arsMergeCode = 0;
+	if ($p{'MergeCreateMode'} eq "Error"){
+	        $arsMergeCode += 1;
+        }elsif ($p{'MergeCreateMode'} eq "Create"){
+                $arsMergeCode += 2;
+        }elsif ($p{'MergeCreateMode'} eq "Overwrite"){
+                $arsMergeCode += 3;
+        }else{
+                $self->{'errstr'} = "MergeTicket: " . $_ . " unknown Merge mode: options are Error, Create, Overwrite";
+                warn ($self->{'errstr'}) if $self->{'Debug'};
+                return (undef);
+        }
+        
+        #handle AllowNullFields
+        if ($p{'AllowNullFields'} !~/^\s*$/){
+                $arsMergeCode += 1024;
+        }
+        
+        #handle SkipFieldPatternCheck
+        if ($p{'SkipFieldPatternCheck'} !~/^\s*$/){
+                $arsMergeCode += 2048;
+        }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	#set object's default TruncateOK if not set on arg list
+	$p{'TruncateOK'} = $self->{'TruncateOK'} if (! exists($p{'TruncateOK'}));
+	
+	#spew field values in debug
+	if ($self->{'Debug'}) {
+		my $str = "Field Values Submitted for merged ticket in " . $p{'Schema'} . "\n";
+		foreach (keys %{$p{'Fields'}}){ $str .= "\t[" . $_ . "]: " . $p{'Fields'}->{$_} . "\n"; }
+		warn ($str);
+	}
+	
+	#check the fields
+	my $errors = $self->CheckFields( %p ) || do {
+		#careful now! if we're here it's either "ok" or a "real error"
+		if ($self->{'errstr'} ne "ok"){
+			$self->{'errstr'} = "MergeTicket: error on CheckFields: " . $self->{'errstr'};
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	};
+	if (length($errors) > 0){
+		$self->{'errstr'} = "MergeTicket: error on CheckFields: " . $errors;
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return ($errors);
+	}
+	
+	#was it over when the Germans bombed Pearl Harbor???!
+	if ($self->{'doubleSecretDebug'}) {
+                my $str = "field values after translation: " . $p{'Schema'} . "\n";
+                foreach (keys %{$p{'Fields'}}){ $str .= "\t[" . $_ . "]: " . $p{'Fields'}->{$_} . "\n"; }
+                warn ($str);
+                $self->{'errstr'} = "exit for doubleSecretDebug";
+                return (undef);
+        }
+	
+	#ars wants an argument list like ctrl, schema, field_name, field_value ...
+	my @args = ();
+	
+	#insert field list
+	foreach (keys %{$p{'Fields'}}){
+		push (
+			@args,
+			($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'id'},
+			$p{'Fields'}->{$_})
+		);
+	}
+	
+	#for those about to rock, we solute you!
+	my $entry_id = ();
+	$entry_id = ARS::ars_MergeEntry($self->{'ctrl'}, $p{'Schema'}, $arsMergeCode, @args) || do {
+	        #if it was an ARERR 161 (staleLogin), reconnect and try it again
+		if ($ARS::ars_errstr =~/ARERR \#161/){
+			warn("MergeTicket: reloading stale login") if $self->{'Debug'};
+			$self->{'staleLogin'} = 1;
+			$self->ARSLogin() || do {
+				$self->{'errstr'} = "MergeTicket: failed reload stale login: " . $self->{'errstr'};
+				warn ($self->{'errstr'}) if $self->{'Debug'};
+				return (undef);
+			};
+			#try it again
+			$entry_id = ARS::ars_MergeEntry($self->{'ctrl'}, $p{'Schema'}, $arsMergeCode, @args) || do {
+			        
+			        ##this thing might legitimately return null
+			        if ($ARS::ars_errstr !~/^\s*$/){
+                                        $self->{'errstr'} = "MergeTicket: can't merge record in: " . $p{'Schema'} . " / " . $ARS::ars_errstr;
+                                        warn ($self->{'errstr'}) if $self->{'Debug'};
+                                        return (undef);
+                                }
+			};
+		} elsif ($ARS::ars_errstr !~/^\s*$/){
+                        $self->{'errstr'} = "MergeTicket: can't merge record in: " . $p{'Schema'} . " / " . $ARS::ars_errstr;
+                        warn ($self->{'errstr'}) if $self->{'Debug'};
+                        return (undef);
+                } else {
+                        warn ("successful merge in overwrite mode") if $self->{'Debug'};
+                        $entry_id = "overwritten";
+                }
+	};
+	
+	#back at ya, baby!
+	return ($entry_id);
+}
