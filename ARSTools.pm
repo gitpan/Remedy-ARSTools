@@ -21,7 +21,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.02;
+$VERSION	= 1.03;
 
 
 
@@ -148,6 +148,28 @@ sub LoadARSConfig {
                                                 }elsif ( defined($tmp->{'limit'}) && defined($tmp->{'limit'}->{'enumLimits'}) && ( ref($tmp->{'limit'}->{'enumLimits'}->{'regularList'}) eq "ARRAY")){
                                                         #found it in the new place
                                                         $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'} = $tmp->{'limit'}->{'enumLimits'}->{'regularList'};
+                                                        
+                                                ## EVEN NEWER HOTNESS (1.03)
+                                                ## handle enums with custom value lists
+                                                }elsif ( defined($tmp->{'limit'}) && defined($tmp->{'limit'}->{'enumLimits'}) && ( ref($tmp->{'limit'}->{'enumLimits'}->{'customList'}) eq "ARRAY")){
+                                                        ## this is dirty ... using null values as placeholders
+                                                        ## this does open up the possibility of null values passing validation when they shouldn't
+                                                        my $highestEnum = 0;
+                                                        my %revHash = ();
+                                                        foreach my $blah (@{$tmp->{'limit'}->{'enumLimits'}->{'customList'}}){
+                                                                if ($blah->{'itemNumber'} > $highestEnum){ $highestEnum = $blah->{'itemNumber'}; }
+                                                                $revHash{$blah->{'itemNumber'}} = $blah->{'itemName'};
+                                                        }
+                                                        my $cnt = 0;
+                                                        while ($cnt <= $highestEnum){
+                                                                if (exists($revHash{$cnt})){
+                                                                        push(@{$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'}}, $revHash{$cnt});
+                                                                }else{
+                                                                        push(@{$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'}}, '');
+                                                                }
+								$cnt ++;
+                                                        }
+                                                        
                                                 }else {
                                                         #didn't find it at all
                                                         $self->{'errstr'} = "LoadARSConfig: I can't find the enum list for this field! " . $field . "(" . $fields{$field} . ")";
@@ -591,7 +613,7 @@ sub DeleteTicket {
 	#both Fields and Schema are required
 	foreach ('Ticket', 'Schema'){ 
 		if (! exists($p{$_})){ 
-			$self->{'errstr'} = "ModifyTicket: " . $_ . " is a required option";
+			$self->{'errstr'} = "DeleteTicket: " . $_ . " is a required option";
 			return (undef);
 		}
 	}
@@ -1293,3 +1315,5 @@ sub MergeTicket {
 	#back at ya, baby!
 	return ($entry_id);
 }
+
+
