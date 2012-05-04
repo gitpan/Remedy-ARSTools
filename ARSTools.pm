@@ -21,7 +21,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.03;
+$VERSION	= 1.04;
 
 
 
@@ -149,27 +149,19 @@ sub LoadARSConfig {
                                                         #found it in the new place
                                                         $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'} = $tmp->{'limit'}->{'enumLimits'}->{'regularList'};
                                                         
-                                                ## EVEN NEWER HOTNESS (1.03)
+                                                ## EVEN NEWER HOTNESS (1.04)
                                                 ## handle enums with custom value lists
                                                 }elsif ( defined($tmp->{'limit'}) && defined($tmp->{'limit'}->{'enumLimits'}) && ( ref($tmp->{'limit'}->{'enumLimits'}->{'customList'}) eq "ARRAY")){
-                                                        ## this is dirty ... using null values as placeholders
-                                                        ## this does open up the possibility of null values passing validation when they shouldn't
-                                                        my $highestEnum = 0;
-                                                        my %revHash = ();
-                                                        foreach my $blah (@{$tmp->{'limit'}->{'enumLimits'}->{'customList'}}){
-                                                                if ($blah->{'itemNumber'} > $highestEnum){ $highestEnum = $blah->{'itemNumber'}; }
-                                                                $revHash{$blah->{'itemNumber'}} = $blah->{'itemName'};
-                                                        }
-                                                        my $cnt = 0;
-                                                        while ($cnt <= $highestEnum){
-                                                                if (exists($revHash{$cnt})){
-                                                                        push(@{$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'}}, $revHash{$cnt});
-                                                                }else{
-                                                                        push(@{$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'}}, '');
-                                                                }
-								$cnt ++;
-                                                        }
                                                         
+                                                        
+                                                        ## NEW HOTNESS -- we'll just use a hash 
+                                                        ## 'ARSConfig'->{schema}->{fields}->{field}->{'enum'} = 1 (regular enum)
+                                                        ## 'ARSConfig'->{schema}->{fields}->{field}->{'enum'} = 2 (custom enum -- use the hash)
+                                                        ## the hash will be where the 'vals' array used to be. The string will be the key. The enum will be the value
+                                                        $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'enum'} = 2;
+                                                        foreach my $blah (@{$tmp->{'limit'}->{'enumLimits'}->{'customList'}}){
+                                                                $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'vals'}->{$blah->{'itemName'}} = $blah->{'itemNumber'};
+                                                        }
                                                 }else {
                                                         #didn't find it at all
                                                         $self->{'errstr'} = "LoadARSConfig: I can't find the enum list for this field! " . $field . "(" . $fields{$field} . ")";
@@ -397,33 +389,67 @@ sub CheckFields {
 		
 		#check / translate enum
 		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} > 0){
-			
+		        
 			#if the value is given as the enum
+			#the thought occurs that some asshat will make an enum field where the values are integers.
+			#but for now, whatever ... "git-r-done"
 			if ($p{'Fields'}->{$_} =~/^\d+$/){
 			
-				#make sure the enum's not out of range
-				if (
-					($p{Fields}->{$_} < 0) ||
-					($p{Fields}->{$_} > $#{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}})
-				){
-					$errors .= "CheckFieldLengths: " . $_ . " enum is out of range\n";
-					next;
-				}
+			        #if it's a customized enum list ...
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} == 2){
+			        
+                                        #make sure we know it (enum is the hash value, string literal is the key)
+                                        my $found = 0;
+                                        foreach my $chewbacca (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}}){
+                                                if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$chewbacca} eq $p{'Fields'}->{$_}){ 
+                                                        $found = 1; 
+                                                        last; 
+                                                }
+                                        }
+                                        if ($found == 0){
+                                                $errors .= "CheckFieldLengths: " . $_ . " enum value is not known (custom enum list)\n";
+                                                next;
+                                        }
+			                
+			        #if it's a vanilla linear enum list ...
+			        }else{
+                                        #make sure the enum's not out of range
+                                        if (
+                                                ($p{Fields}->{$_} < 0) ||
+                                                ($p{Fields}->{$_} > $#{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}})
+                                        ){
+                                                $errors .= "CheckFieldLengths: " . $_ . " enum is out of range\n";
+                                                next;
+                                        }
+                                }
 			
-			#if the value is given as the string
-			}else{
+			#if the value is given as the string (modified for 1.031)
+			}elsif ($p{'Fields'}->{$_} !~/^\s*$/){
 				
-				#translate it
-				my $cnt = 0;
-				foreach my $val (@{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}}){
-					if ($p{'Fields'}->{$_} =~/^$val$/i){ $p{'Fields'}->{$_} = $cnt; last; }
-					$cnt ++;
-				}
-				#if we didn't find it, if it's not translated here
-				if ($p{'Fields'}->{$_} !~/^\d+$/){
-					$errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field\n";
+			        #if it's a custom enum list ...
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} == 2){
+			                #translate it (custom enum lists do not enjoy case-insensitive matching this go-round)
+			                if (exists ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$p{'Fields'}->{$_}})){
+			                        $p{'Fields'}->{$_} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$p{'Fields'}->{$_}};
+			                }else{
+			                        $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field (custom enum list)\n";
+			                        next;
+                                        }
+			                
+                                #if its not ...
+                                }else{
+                                        #translate it
+                                        my $cnt = 0; my $found = 0;
+                                        foreach my $val (@{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}}){
+                                                if ($p{'Fields'}->{$_} =~/^$val$/i){ $p{'Fields'}->{$_} = $cnt; $found = 1; last; }
+                                                $cnt ++;
+                                        }
+                                        
+                                        #if we didn't find it
+                                        $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field\n";
 					next;
-				}
+                                        
+                                }
 			}
 		}
 	}
@@ -549,15 +575,16 @@ sub ModifyTicket{
 	}
 	
 	#check the fields
-	my $errors = $self->CheckFields( %p ) || do {
+	my $errors = ();
+	$errors = $self->CheckFields( %p ) || do {
 		#careful now! if we're here it's either "ok" or a "real error"
 		if ($self->{'errstr'} ne "ok"){
-			$self->{'errstr'} = "ModifyTicket: error on CheckFields: " . $self->{'errstr'};
+			$self->{'errstr'} = "ModifyTicket: error on CheckFields: " . $errors . " / " . $self->{'errstr'};
 			return (undef);
 		}
 	};
 	if (length($errors) > 0){
-		$self->{'errstr'} = "ModifyTicket: error on CheckFields: " . $self->{'errstr'};
+		$self->{'errstr'} = "ModifyTicket: error on CheckFields: " . $errors . " / " . $self->{'errstr'};
 		return (undef);
 	}
 	
@@ -984,7 +1011,21 @@ sub QueryOld {
 				($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} > 0) &&
 				($values{$revMap{$id}} =~/^\d+$/)
 			){
-				$values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} == 2){
+			                
+			                my $found = 0;
+			                foreach my $chewbacca (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}}){
+			                        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->{$chewbacca} eq $values{$revMap{$id}}){
+			                                $values{$revMap{$id}} = $chewbacca;
+			                                $found = 1;
+			                                last;
+			                        }
+			                }
+			                #hmm, there doesn't seem to be any existing mechanism to catch an enum mismatch here
+			                #imma just go with the flow ...
+                                }else{
+                                        $values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
+                                }
 			}
 		}
 		
@@ -1173,8 +1214,23 @@ sub QueryNew {
 				($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} > 0) &&
 				($values{$revMap{$id}} =~/^\d+$/)
 			){
-				$values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} == 2){
+			                
+			                my $found = 0;
+			                foreach my $chewbacca (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}}){
+			                        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->{$chewbacca} eq $values{$revMap{$id}}){
+			                                $values{$revMap{$id}} = $chewbacca;
+			                                $found = 1;
+			                                last;
+			                        }
+			                }
+			                #hmm, there doesn't seem to be any existing mechanism to catch an enum mismatch here
+			                #imma just go with the flow ...
+                                }else{
+                                        $values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
+                                }
 			}
+			
 		}
 		
 		#push it on list of results
