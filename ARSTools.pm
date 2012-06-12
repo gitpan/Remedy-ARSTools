@@ -21,7 +21,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.04;
+$VERSION	= 1.05;
 
 
 
@@ -446,9 +446,10 @@ sub CheckFields {
                                         }
                                         
                                         #if we didn't find it
-                                        $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field\n";
-					next;
-                                        
+                                        if ($found != 1){
+                                                $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field\n";
+                                                next;
+                                        }
                                 }
 			}
 		}

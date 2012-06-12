@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Remedy-ARSTools
-version:            1.04
+version:            1.05
 abstract:           a perl wrapper to the ARSperl project, providing a simplified object interface with field
 author:
     - Andrew N. Hicox <andrew@hicox.com>

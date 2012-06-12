@@ -1,9 +1,15 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.05            Tue Jun 12 23:30:02 GMT 2012
+                fixed bug in CheckFields causing enums to return null value match
+                
 1.04            Sat Apr 28 00:46:04 GMT 2012
                 fixed CheckFields bug preventing ModifyTicket from setting a null value on an enum field.
 		fixed the hacky duct-tape that was the 1.03 implementation of custom enum value lists with 
 		the help mister John Zhang <jzhang@silverspringnet.com>. Thanks, man!
+
+1.031           Sat Apr 28 00:46:04 GMT 2012
+                fixed CheckFields bug preventing ModifyTicket from setting a null value on an enum field.
 
 1.03            Fri Mar 23 16:49:48 EDT 2012
                 LoadARSConfig now supports enums with custom value lists
