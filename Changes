@@ -1,5 +1,33 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.06		Wed Jan 22 11:37:36 CST 2014
+		added automatic date, datetime & time_of_day string<->integer conversions
+		
+		Additionally, ya boy got a new job at NASA and hoo boy do I need/get to use perl a lot around here!
+		That means some more updates to Remedy::ARSTools are coming. 
+		Behold my to-do list suckas:
+		
+			* SQLQuery
+			  this is an interface specifically for tunnelling SQL Queries over the API, but returning
+			  nice user-friendly output not unlike DBIx::YAWM. Perhaps with enum translation and datetime
+			  conversion tacked on. dare to dream.
+			  
+			* FindFilterInGuides
+			  find all the filter guides containing the specified filter name
+			  
+			* FindActiveLinkInGuides
+			  find all the active link guides containing the specified active link name
+			  
+			* ExportDefinition
+			  export the definition in def or xml of the specified object, identified by type and name
+			  note: XML def export doesn't work on forms with overlays, I have a ticket with BMC open on that
+			  
+			* ImportDefinition
+			  import a def or xml definition of an object (obviously, you gotta be an admin for that).
+
+			* some kinda hack to make CreateTicket not return undef every time you create a ticket on a join form
+			  though presently I'm stumped. Querying by $LASTID$ in that scenario actually core dumped my 8.1 test arserver.
+			  
 1.05            Tue Jun 12 23:30:02 GMT 2012
                 fixed bug in CheckFields causing enums to return null value match
                 
@@ -32,12 +60,12 @@ Revision history for Perl extension Remedy::ARSTools.
 			- rewrote documentation, removed even more snarky comments
 			- removed 'timeout' option
 			
-0.92	Tue Oct 17 21:45:35 GMT 2006
+0.92		Tue Oct 17 21:45:35 GMT 2006
 		added 'timeout' option. If set, the control structure is reloaded if last access 
 		was more than that long ago
 		goddam this module needs a rewrite like a new set of drawers. it's FUNKY in there! ;-)
 
-0.91	Tue Mar 21 16:16:25 GMT 2006	
+0.91		Tue Mar 21 16:16:25 GMT 2006	
 		modified checkFieldLengths to accept blessed references on the Fields argument.
 
 0.9		Fri Jul  9 09:46:50 EDT 2004
@@ -50,7 +78,7 @@ Revision history for Perl extension Remedy::ARSTools.
 		still carrying all the "things to do"
 		CreateTicket now spews field value submissions in Debug mode
 
-0.7 	05/12/03 21:50:47
+0.7 		05/12/03 21:50:47
 		now exports procedural methods to calling namespace
 		nothing else added/changed, so considder all the "things to do" 
 		from .06 be the things to do for .08
@@ -66,7 +94,7 @@ Revision history for Perl extension Remedy::ARSTools.
 		legit test suite
 		switch GenerateARSConfig to _GenerateARSConfig (fix autosplit problem)
 	
-0.5 	Wed 10/30/02 11:27:02
+0.5 		Wed 10/30/02 11:27:02
 		initial release to CPAN under Remedy::ARSTools namespace
 		added ParseDiay
    	 	added ParseDBDiary
@@ -76,7 +104,7 @@ Revision history for Perl extension Remedy::ARSTools.
 		added GenerateConfig
 		added GenerateARSConfig
 		added GetFieldData
-    	-Still To Do:
+		-Still To Do:
 		'AutoConfig' automatically refresh ConfigFile upon field data exceptions
 		Write Test Suite.
 		Make complains about GenerateConfig and GenerateARSConfig: that they are

@@ -15,13 +15,15 @@ require Exporter;
 
 use AutoLoader qw(AUTOLOAD);
 use ARS;
+use Date::Parse;
+use Time::Interval;
 
 #class global vars
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
-@EXPORT		= qw(&ParseDBDiary);
+@EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.05;
+$VERSION	= 1.06;
 
 
 
@@ -49,6 +51,8 @@ sub new {
 	$self->{'GenerateConfig'} = 1 if ($self->{'GenerateConfig'} =~/^\s*$/);
 	$self->{'TruncateOK'}     = 1 if ($self->{'TruncateOK'} =~/^\s*$/);
 	$self->{'Port'} = undef if ($self->{'Port'} !~/^\d+/);
+	$self->{'DateTranslate'}  = 1 if ($self->{'DateTranslate'} =~/^\s*$/);
+	$self->{'TwentyFourHourTimeOfDay'} = 0  if ($self->{'TwentyFourHourTimeOfDay'} =~/^\s*$/);
 	
 	#default options apply only to ARS >= 1.8001
 	$self->{'Language'} = undef if ($self->{'Language'} =~/^\s*$/);
@@ -139,6 +143,10 @@ sub LoadARSConfig {
 				## depending on the C-api version that ARSperl was compiled against, the data we're looking 
 				## for may be in one of two locations. We'll check both, and take the one that has data
 				if ( defined($tmp->{'dataType'}) ){
+					
+					## some 1.06 hotness ... stash the field dataType too
+					$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'dataType'} = $tmp->{'dataType'};
+					
 				        if ($tmp->{'dataType'} eq "enum"){
 				                #handle enums
 				                $self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'enum'} = 1;
@@ -189,6 +197,10 @@ sub LoadARSConfig {
 		#unset staleConfig flag
 		$self->{'staleConfig'} = 0;
 		
+		
+		## new for 1.06, keep Remedy::ARSTools::VERSION in the config, so we can know later if we need to upgrade it
+		$self->{'ARSConfig'}->{'__Remedy_ARSTools_Version'} = $Remedy::ARSTools::VERSION;
+		
 		#now that we have our data, write the file (if we have the flag)
 		if ($self->{'GenerateConfig'} > 0){
 			require Data::DumpXML;
@@ -230,6 +242,12 @@ sub LoadARSConfig {
 		#actually just the first element will do ;-)
 		$self->{'ARSConfig'} = $self->{'ARSConfig'}->[0];
 		
+		## new for 1.06 ... upgrade the config if it was created with an earlier version of Remedy::ARSTools
+		if ($self->{'ARSConfig'}->{'__Remedy_ARSTools_Version'} < 1.06){
+			warn("LoadARSConfig: re-generating config generated with earlier version of Remedy::ARSTools") if $self->{'Debug'};
+			$self->{'staleConfig'} = 1;
+			$self->LoadARSConfig();
+		}
 		warn("LoadARSConfig: loaded config from file") if $self->{'Debug'};
 		return(1);
 	}
@@ -310,6 +328,9 @@ __END__
 ## have errors return undef with errstr "ok".
 ## If we have real errors, return undef with the
 ## errstr on errstr.
+## new for 1.06: convert date, datetime & time_of_day
+## values to integers of seconds (which the API wants,
+## and will not do for you).
 sub CheckFields {
 	my ($self, %p) = @_;
 	my $errors = ();
@@ -347,67 +368,179 @@ sub CheckFields {
 		}
 	};
 	
-	#examine each field for length & enum
-	foreach (keys %{$p{'Fields'}}){
+	#examine each field for length, enum & datetime conversion
+	foreach my $field (keys %{$p{'Fields'}}){
 		
 		#make sure we "know" the field
-		exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}) || do {
+		exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}) || do {
 			
 			#if we have 'ReloadConfigOK' in the object ... go for it
 			if ($self->{'ReloadConfigOK'} > 0){
 				$self->{'staleConfig'} = 1;
-				warn("CheckFields: reloading stale config for unknown field: " . $p{'Schema'} . "/" . $_) if $self->{'Debug'};
+				warn("CheckFields: reloading stale config for unknown field: " . $p{'Schema'} . "/" . $field) if $self->{'Debug'};
 				$self->LoadARSConfig() || do {
 					$self->{'errstr'} = "CheckFields: can't reload config " . $self->{'errstr'};
 					warn($self->{'errstr'}) if $self->{'Debug'};
 					return(undef);
 				};
 				#if we didn't pick up the field, barf
-				exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}) || do {
-					$self->{'errstr'} = "CheckFields: I don't know the field: " . $_ . " in the schema: " . $p{'Schema'};
+				exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}) || do {
+					$self->{'errstr'} = "CheckFields: I don't know the field: " . $field . " in the schema: " . $p{'Schema'};
 					warn($self->{'errstr'}) if $self->{'Debug'};
 					return (undef);
 				};
 			}
 		};
 		
+		#1.06 hotness: check and convert datetime, date & time_of_day
+		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "time"){
+			
+			##straight up epoch conversion, son (if it's not already)
+			if ($p{'Fields'}->{$field} !~/^\d{1,10}&/){
+				my $epoch = str2time($p{'Fields'}->{$field}) || do {
+					$errors .= "CheckFields epoch conversion: cannot convert datetime value: " . $p{'Fields'}->{$field};
+					next;
+				};
+				$p{'Fields'}->{$field} = $epoch;
+			}
+			
+		}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "date"){
+			
+			##the number of days elapsed since 1/1/4713, BCE (ya rly)
+			##note: this will only work with dates > 1 BCE. (sorry, historians with remedy systems).
+			if ($p{'Fields'}->{$field} !~/^\d{1,7}$/){
+				my $epoch = str2time($p{'Fields'}->{$field}) || do {
+					$errors .= "CheckFields epoch conversion: cannot convert datetime value: " . $p{'Fields'}->{$field};
+					next;
+				};
+				my $tmpDate = parseInterval(seconds => $epoch);
+				$p{'Fields'}->{$field} = ($tmpDate->{'days'} + 2440588);
+			}
+			
+		}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "time_of_day"){
+			
+			##the number of seconds since midnight
+			##we are going to accept one string format: hh:mm:ss AM/PM
+			##otherwise you need to send your own int value 
+			$p{'Fields'}->{$field} =~s/\s+//g;
+			if ($p{'Fields'}->{$field} =~/(\d{1,2}):(\d{1,2}):(\d{1,2})\s*(A|P)*/i){
+				## we got hh:mm:ss A/P
+				my ($hours, $minutes, $seconds, $ampm) = ($1, $2, $3, $4);
+				
+				## if we're in am, the hour must be < 12 (and if it's 12, that's really 0)
+				## if we're in pm, the hour must be < 11
+				## if we don't have an ampm, then the hour must be < 23
+				## minutes and seconds must be < 60 of course.
+				
+				#handle hours
+				if ($ampm =~/^a$/i){
+					if ($hours > 12){
+						## ERROR: out of range hour value
+						$errors .= "CheckFields time-of-day conversion: hour out of range for AM";
+						next;
+					}elsif ($hours == 12){
+						$hours = 0;
+					}
+				}elsif ($ampm =~/^p$/i){
+					if ($hours > 11){
+						## ERROR: out of range hour value
+						$errors .= "CheckFields time-of-day conversion: hour out of range for PM";
+						next;
+					}else{
+						$hours += 12;
+					}
+				}elsif ($ampm =~/^\s*$/){
+					if ($hours > 23){
+						## ERROR: out of range hour value
+						$errors .= "CheckFields time-of-day conversion: hour out of range for 24 hour notation";
+						next;
+					}
+				}
+				$hours = $hours * 60 * 60;
+				#handle minutes
+				if ($minutes > 60){
+					## ERROR: out of range minutes value
+					$errors .= "CheckFields time-of-day conversion: minute value out of range";
+					next;
+				}else{
+					$minutes = $minutes * 60;
+				}
+				#handle seconds
+				if ($seconds > 60){
+					## ERROR: out of range seconds value
+					$errors .= "CheckFields time-of-day conversion: seconds value out of range";
+					next;
+				}
+				
+				#here it is muchacho!
+				$p{'Fields'}->{$field} = $hours + $minutes + $seconds;
+				
+			}elsif($p{'Fields'}->{$field} =~/^(\d{1,5})$/){
+				## we got an integer
+				my $seconds = $1;
+				if ($seconds > 86400){
+					## ERROR: out of range integer value
+					$errors .= "CheckFields time-of-day: out of range integer second value";
+					next;
+				}else{
+					$p{'Fields'}->{$field} = $seconds;
+				}
+			}else{
+				## ERROR: we have no idea what this is but the API isn't gonna like it
+				$errors .= "CheckFields time-of-day: unparseable time-of-day string";
+				next;
+			}
+		}
+		
+		#1.06 hotness: convert diary fields to strings. This is useful for MergeTicket where we're trying
+		#to write an entire diary field at once rather than insert an entry, which the API will do for us
+		if (
+			($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "diary") &&
+			(ref($p{'Fields'}->{$field}) eq "ARRAY")
+		){
+			$p{'Fields'}->{$field} = $self->EncodeDBDiary(Diary => $p{'Fields'}->{$field}) || do {
+				$errors .= "CheckFields diary conversion: " . $self->{'errstr'};
+				next;
+			};
+		}
+		
 		#check length
 		if (
-			( exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'length'}) ) &&
-			( $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'length'} > 0 ) &&
-			( length($p{'Fields'}->{$_}) <= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'length'} )
+			( exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'}) ) &&
+			( $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} > 0 ) &&
+			( length($p{'Fields'}->{$field}) <= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} )
 		){
 			#field is too long
 			if ($p{'TruncateOK'} > 0){
-			$p{'Fields'}->{$_} = substr($p{'Fields'}->{$_}, 0, $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'length'});
+			$p{'Fields'}->{$field} = substr($p{'Fields'}->{$field}, 0, $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'});
 			}else{
-				$errors .= "CheckFieldLengths: " . $_ . "too long (max length is ";
-				$errors .= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'length'} . ")\n";
+				$errors .= "CheckFieldLengths: " . $field . "too long (max length is ";
+				$errors .= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} . ")\n";
 				next;
 			}
 		}
 		
 		#check / translate enum
-		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} > 0){
+		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'enum'} > 0){
 		        
 			#if the value is given as the enum
 			#the thought occurs that some asshat will make an enum field where the values are integers.
 			#but for now, whatever ... "git-r-done"
-			if ($p{'Fields'}->{$_} =~/^\d+$/){
+			if ($p{'Fields'}->{$field} =~/^\d+$/){
 			
 			        #if it's a customized enum list ...
-			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} == 2){
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'enum'} == 2){
 			        
                                         #make sure we know it (enum is the hash value, string literal is the key)
                                         my $found = 0;
-                                        foreach my $chewbacca (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}}){
-                                                if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$chewbacca} eq $p{'Fields'}->{$_}){ 
+                                        foreach my $chewbacca (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}}){
+                                                if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}->{$chewbacca} eq $p{'Fields'}->{$field}){ 
                                                         $found = 1; 
                                                         last; 
                                                 }
                                         }
                                         if ($found == 0){
-                                                $errors .= "CheckFieldLengths: " . $_ . " enum value is not known (custom enum list)\n";
+                                                $errors .= "CheckFieldLengths: " . $field . " enum value is not known (custom enum list)\n";
                                                 next;
                                         }
 			                
@@ -415,24 +548,24 @@ sub CheckFields {
 			        }else{
                                         #make sure the enum's not out of range
                                         if (
-                                                ($p{Fields}->{$_} < 0) ||
-                                                ($p{Fields}->{$_} > $#{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}})
+                                                ($p{Fields}->{$field} < 0) ||
+                                                ($p{Fields}->{$field} > $#{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}})
                                         ){
-                                                $errors .= "CheckFieldLengths: " . $_ . " enum is out of range\n";
+                                                $errors .= "CheckFieldLengths: " . $field . " enum is out of range\n";
                                                 next;
                                         }
                                 }
 			
 			#if the value is given as the string (modified for 1.031)
-			}elsif ($p{'Fields'}->{$_} !~/^\s*$/){
+			}elsif ($p{'Fields'}->{$field} !~/^\s*$/){
 				
 			        #if it's a custom enum list ...
-			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'enum'} == 2){
+			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'enum'} == 2){
 			                #translate it (custom enum lists do not enjoy case-insensitive matching this go-round)
-			                if (exists ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$p{'Fields'}->{$_}})){
-			                        $p{'Fields'}->{$_} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}->{$p{'Fields'}->{$_}};
+			                if (exists ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}->{$p{'Fields'}->{$field}})){
+			                        $p{'Fields'}->{$field} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}->{$p{'Fields'}->{$field}};
 			                }else{
-			                        $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field (custom enum list)\n";
+			                        $errors .= "CheckFieldLengths: " . $field . " given value does not match any enumerated value for this field (custom enum list)\n";
 			                        next;
                                         }
 			                
@@ -440,14 +573,14 @@ sub CheckFields {
                                 }else{
                                         #translate it
                                         my $cnt = 0; my $found = 0;
-                                        foreach my $val (@{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'vals'}}){
-                                                if ($p{'Fields'}->{$_} =~/^$val$/i){ $p{'Fields'}->{$_} = $cnt; $found = 1; last; }
+                                        foreach my $val (@{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'vals'}}){
+                                                if ($p{'Fields'}->{$field} =~/^$val$/i){ $p{'Fields'}->{$field} = $cnt; $found = 1; last; }
                                                 $cnt ++;
                                         }
                                         
                                         #if we didn't find it
                                         if ($found != 1){
-                                                $errors .= "CheckFieldLengths: " . $_ . " given value does not match any enumerated value for this field\n";
+                                                $errors .= "CheckFieldLengths: " . $field . " given value does not match any enumerated value for this field\n";
                                                 next;
                                         }
                                 }
@@ -674,6 +807,82 @@ sub DeleteTicket {
 }
  
  
+## EncodeDBDiary #####################################
+## this is the inverse of ParseDBDiary. This will take
+## a perl data structure, the likes of which is returned
+## by ParseDBDiary or Query (when returning a diary field)
+## and it will output a formatted text field suitable for
+## manually inserting directly into a database table,
+## also for setting a diary field with MergeTicket (though
+## Remedy::ARSTools will call this for you out of CheckFields
+## if you send an array of hashes on a diary field value).
+sub EncodeDBDiary {
+	
+	## as with ParseDBDiary, this is also exported procedural
+	## for your git-r-done pleasure
+	my ($self, %p) = ();
+	if (ref($_[0]) eq "Remedy::ARSTools"){
+		#oo mode
+		($self, %p) = @_;
+	}else{
+		#procedural mode
+		$self = bless({});
+		%p = @_;
+	}
+	
+	my ($record_separator, $meta_separator) = (chr(03), chr(04));
+	my @records = ();
+	
+	#Diary is the only required option and it must be an array of hashes
+	#each containing 'timestamp', 'user' and 'value
+	exists($p{'Diary'}) || do {
+		$errstr = $self->{'errstr'} = "EncodeDBDiary: 'Diary' is a required option";
+		warn($self->{'errstr'}) if $self->{'debug'};
+		return (undef);
+	};
+	if (ref($p{'Diary'}) ne "ARRAY"){
+		$errstr = $self->{'errstr'} = "EncodeDBDiary: 'Diary' must be an ARRAY reference";
+		warn($self->{'errstr'}) if $self->{'debug'};
+		return (undef);
+	}
+	
+	#I guess we otter check that each array element is a hash ref with the required data ...
+	foreach my $entry (@{$p{'Diary'}}){
+		if (ref($entry) ne "HASH"){
+			$errstr = $self->{'errstr'} = "EncodeDBDiary: 'Diary' must be an ARRAY or HASH references";
+			warn($self->{'errstr'}) if $self->{'debug'};
+			return (undef);
+		}
+		foreach ('timestamp', 'user', 'value'){ 
+			if (! exists($entry->{$_})){
+				$errstr = $self->{'errstr'} = "EncodeDBDiary: 'Diary' contains incomplete records!";
+				warn($self->{'errstr'}) if $self->{'debug'};
+				return (undef);
+			}
+		}
+	}
+	
+	#let's do this ... sort the thang in reverse chronological order, build a string for each
+	#entry then join the whole thang with the record separator. and return it
+	@{$p{'Diary'}} = sort{ $a->{'timestamp'} <=> $b->{'timestamp'} } @{$p{'Diary'}};
+	my @skrangz = ();
+	foreach my $entry (@{$p{'Diary'}}){
+		
+		#if 'timestamp' is not an integer ...
+		if ($entry->{'timestamp'} !~/^\d{1,10}$/){
+			$entry->{'timestamp'} = str2time($entry->{'timestamp'}) || do {
+				$errstr = $self->{'errstr'} = "EncodeDBDiary: contains an entry with an unparseable 'timestamp': " . $entry->{'timestamp'};
+				warn($self->{'errstr'}) if $self->{'debug'};
+				return (undef);
+			};
+		}
+		
+		my $tmp = join($meta_separator, $entry->{'timestamp'}, $entry->{'user'}, $entry->{'value'});
+		push(@skrangz, $tmp);
+	}
+	my $big_diary_string = join($record_separator, @skrangz);
+	return($big_diary_string . $record_separator); 		## <-- yeah it always sticks one at the end for some reason
+}
 
   
 
@@ -715,6 +924,22 @@ sub ParseDBDiary {
 	
 	#we expect at least 'Diary' and possibly 'ConvertDate'
 	
+	#if we got DateConversionTimeZone, sanity check it
+	if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+		if ($p{'DateConversionTimeZone'} =~/(\+|\-)(\d{1,2})/){
+			($p{'plusminus'}, $p{'offset'}) = ($1, $2);
+			if ($p{'offset'} > 24){
+				$self->{'errstr'} = "ParseDBDiary: 'DateConversionTimeZone' is out of range (" . $p{'DateConversionTimeZone'} . ")";
+				warn ($self->{'errstr'}) if $self->{'Debug'};
+				return (undef);
+			}
+		}else{
+			$self->{'errstr'} = "ParseDBDiary: 'DateConversionTimeZone' is unparseable (" . $p{'DateConversionTimeZone'} . ")";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
 	#it might be one record with no separator
 	if ($p{'Diary'} !~/$record_separator/){
 		
@@ -739,8 +964,27 @@ sub ParseDBDiary {
 	foreach (@records){
 		my ($timestamp, $user, $value) = split(/$meta_separator/, $_);
 		
-		#if 'convert_date' is set convert the timestamps to localtime
-		$timestamp = localtime($timestamp) if ($p{'ConvertDate'} > 0);
+		#if 'ConvertDate' and 'DateConversionTimeZone' are set, do the math
+		if ($p{'ConvertDate'} > 0) {
+		
+			if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+				if ($p{'plusminus'} eq "+"){
+					$timestamp += ($p{'offset'} * 60 * 60);
+				}elsif ($p{'plusminus'} eq "-"){
+					$timestamp -= ($p{'offset'} * 60 * 60);
+				}
+			}
+			
+			#convert that thang to GMT
+			$timestamp = gmtime($timestamp);
+			$timestamp .= "GMT";
+			
+			#tack on the offset if we had one
+			if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+				$p{'offset'} = sprintf("%02d", $p{'offset'});
+				$timestamp .= " " . $p{'plusminus'} . $p{'offset'} . "00";
+			}
+		}
 		
 		#put it back on the stack as a hash reference
 		$_ = {
@@ -999,40 +1243,21 @@ sub QueryOld {
 		};
 		
 		#translate field names & enums back to human-readable 
-		foreach my $id (keys %values){
-			
-			#convert field names
-			unless ($revMap{$id} eq $id){
-				$values{$revMap{$id}} = $values{$id};
-				delete ($values{$id});
-			}
-			
-			#translate enums
-			if (
-				($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} > 0) &&
-				($values{$revMap{$id}} =~/^\d+$/)
-			){
-			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} == 2){
-			                
-			                my $found = 0;
-			                foreach my $chewbacca (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}}){
-			                        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->{$chewbacca} eq $values{$revMap{$id}}){
-			                                $values{$revMap{$id}} = $chewbacca;
-			                                $found = 1;
-			                                last;
-			                        }
-			                }
-			                #hmm, there doesn't seem to be any existing mechanism to catch an enum mismatch here
-			                #imma just go with the flow ...
-                                }else{
-                                        $values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
-                                }
-			}
-		}
+		my $converted_row_data = $self->ConvertFieldsToHumanReadable(
+			Schema			=> $p{'Schema'},
+			Fields			=> \%values,
+			DateConversionTimeZone	=> $p{'DateConversionTimeZone'}
+		) || do {
+			$self->{'errstr'} = "QueryOld: can't convert data returned on API (this should not happen!): " . $self->{'errstr'};
+			warn($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+		
+		#push it on list of results
+		push (@out, $converted_row_data);
 		
 		#push it on list of results
 		push (@out, \%values);
-		
 	}
 	
 	#return the list of results
@@ -1201,48 +1426,24 @@ sub QueryNew {
 			return (undef);
 		};
 		
-		#translate field names & enums back to human-readable 
-		foreach my $id (keys %values){
-			
-			#convert field names
-			unless ($revMap{$id} eq $id){
-				$values{$revMap{$id}} = $values{$id};
-				delete ($values{$id});
-			}
-			
-			#translate enums
-			if (
-				($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} > 0) &&
-				($values{$revMap{$id}} =~/^\d+$/)
-			){
-			        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'enum'} == 2){
-			                
-			                my $found = 0;
-			                foreach my $chewbacca (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}}){
-			                        if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->{$chewbacca} eq $values{$revMap{$id}}){
-			                                $values{$revMap{$id}} = $chewbacca;
-			                                $found = 1;
-			                                last;
-			                        }
-			                }
-			                #hmm, there doesn't seem to be any existing mechanism to catch an enum mismatch here
-			                #imma just go with the flow ...
-                                }else{
-                                        $values{$revMap{$id}} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$revMap{$id}}->{'vals'}->[$values{$revMap{$id}}];
-                                }
-			}
-			
-		}
+		my $converted_row_data = $self->ConvertFieldsToHumanReadable(
+			Schema			=> $p{'Schema'},
+			Fields			=> \%values,
+			DateConversionTimeZone	=> $p{'DateConversionTimeZone'}
+		) || do {
+			$self->{'errstr'} = "QueryNew: can't convert data returned on API (this should not happen!): " . $self->{'errstr'};
+			warn($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
 		
 		#push it on list of results
-		push (@out, \%values);
+		push (@out, $converted_row_data);
 		
 	}
 	
 	#return the list of results
 	return (\@out);
 }
-
 
 ## MergeTicket ###################################
 ## just like CreateTicket, but a Merge transaction
@@ -1373,4 +1574,406 @@ sub MergeTicket {
 	return ($entry_id);
 }
 
+
+## ConvertFieldsToHumanReadable #################
+## this takes a big hash of field_id -> value pairs
+## for a given schema and:
+##	1) converts all the field_id values to Field Names for the specified schema
+##	2) converts integer-specified enum values to human-readable strings
+##	3) converts date, datetime & time_of_day integer values to strings
+##	4) converts packed diary fields to the standard diary field structure (see ParseDiary)
+## required arguments:
+##	'Fields'		=> a hash reference containing field_id => value pairs not unlike what comes out of ars_GetEntry
+##	'Schema'		=> the name of the Schema (or "Form" in today's parlance) from whence the 'Fields' data originated
+## optional arguments:
+##	'DateConversionTimeZone' => number of hours offset from GMT for datetime conversion (default = 0 = GMT)
+## on success return a hash reference containing the converted field list 
+## else undef + errstr
+sub ConvertFieldsToHumanReadable {
+	my ($self, %p) = @_;
+	
+	#Fields and Schema are required
+	foreach ('Fields', 'Schema'){ 
+		if (! exists($p{$_})){ 
+			$self->{'errstr'} = "ConvertFieldsToHumanReadable: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#if we got DateConversionTimeZone, sanity check it
+	if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+		if ($p{'DateConversionTimeZone'} =~/(\+|\-)(\d{1,2})/){
+			($p{'plusminus'}, $p{'offset'}) = ($1, $2);
+			if ($p{'offset'} > 24){
+				$self->{'errstr'} = "ConvertFieldsToHumanReadable: 'DateConversionTimeZone' is out of range (" . $p{'DateConversionTimeZone'} . ")";
+				warn ($self->{'errstr'}) if $self->{'Debug'};
+				return (undef);
+			}
+		}else{
+			$self->{'errstr'} = "ConvertFieldsToHumanReadable: 'DateConversionTimeZone' is unparseable (" . $p{'DateConversionTimeZone'} . ")";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#yeah ...
+	my @month_converter = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+	my @weekday_converter = qw(Sun Mon Tue Wed Thu Fri Sat);
+	
+	#make sure we 'know' the schema
+	exists($self->{'ARSConfig'}->{$p{'Schema'}}) || do {
+		
+		#if we have 'ReloadConfigOK' in the object ... go for it
+		if ($self->{'ReloadConfigOK'} > 0){
+			$self->{'staleConfig'} = 1;
+			warn("ConvertFieldsToHumanReadable: reloading stale config for unknown schema: " . $p{'Schema'}) if $self->{'Debug'};
+			$self->LoadARSConfig() || do {
+				$self->{'errstr'} = "ConvertFieldsToHumanReadable: can't reload config " . $self->{'errstr'};
+				warn($self->{'errstr'}) if $self->{'Debug'};
+				return(undef);
+			};
+			#if we didn't pick up the schema, barf
+			exists($self->{'ARSConfig'}->{$p{'Schema'}}) || do {
+				$self->{'errstr'} = "ConvertFieldsToHumanReadable: I don't know the schema: " . $p{'Schema'};
+				warn($self->{'errstr'}) if $self->{'Debug'};
+				return (undef);
+			};
+		}
+	};
+	
+	#gonna be easier and faster to make a reverse hash
+	my %fieldIDIndex = ();
+	foreach my $field_name (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}}){
+		$fieldIDIndex{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'id'}} = $field_name;
+	}
+	
+	#translate field_ids to field_names
+	my %translated = ();
+	foreach my $field_id (keys %{$p{'Fields'}}){
+		#we're either gonna know it and translate it or we're gonna throw an error
+		if (exists($fieldIDIndex{$field_id})){
+			$translated{$fieldIDIndex{$field_id}} = $p{'Fields'}->{$field_id};
+		}else{
+			$self->{'errstr'} = "ConvertFieldsToHumanReadable: I don't know the field: '" . $field_id . "' in the schema '" . $p{'Schema'} . "'";
+			warn($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#translate date, datetime & time_of_day -> string
+	if ($self->{'DateTranslate'} > 0){
+		foreach my $field_name (keys %translated){
+			
+			if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "time"){
+			
+				#apply the GMT offset should we have one
+				if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+					if ($p{'plusminus'} eq "+"){
+						$translated{$field_name} += ($p{'offset'} * 60 * 60);
+					}elsif ($p{'plusminus'} eq "-"){
+						$translated{$field_name} -= ($p{'offset'} * 60 * 60);
+					}
+				}
+				
+				#datetime conversion
+				my $gmt_str = gmtime($translated{$field_name}) || do {
+					$self->{'errstr'} = "ConvertFieldsToHumanReadable: can't convert epoch integer (" . $translated{$field_name} . ") to GMT time string: " . $!;
+					warn($self->{'errstr'}) if $self->{'Debug'};
+					return (undef);
+				};
+				$translated{$field_name} = $gmt_str . " GMT";
+				if ($p{'DateConversionTimeZone'} !~/^\s*$/){
+					$p{'offset'} = sprintf("%02d", $p{'offset'});
+					$translated{$field_name} .= " " . $p{'plusminus'} . $p{'offset'} . "00";
+				}
+				
+			}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "date"){
+				
+				#date ... so convoluted
+				#get us back on this side of the first christmas :-/
+				$translated{$field_name} -= 2440588;
+				my @tmp = gmtime($translated{$field_name} * 86400);
+				my $month = $month_converter[$tmp[4]];
+				my $year = $tmp[5] + 1900;
+				my $weekday = $weekday_converter[$tmp[6]];
+				$translated{$field_name} = $weekday . ", " . $month . " " . $tmp[3] . " " . $year;
+				
+			}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "time_of_day"){
+				
+				#time_of_day
+				my $tmp = parseInterval(seconds => $translated{$field_name}) || do {
+					$self->{'errstr'} = "ConvertFieldsToHumanReadable: can't parse time_of_day integer (" .  $translated{$field_name} . ")";
+					warn($self->{'errstr'}) if $self->{'Debug'};
+					return (undef);
+				};
+				
+				#single zero-padding, muchacho!
+				foreach ('hours', 'minutes', 'seconds'){ $tmp->{$_} = sprintf("%02d", $tmp->{$_}); }
+				
+				#ok, and I guess we'll let 'em turn off civilian time conversion if they can dig it
+				if ($self->{'TwentyFourHourTimeOfDay'} != 1){
+					my $ampm = "AM";
+					if ($tmp->{'hours'} > 12){
+						$ampm = "PM";
+						$tmp->{'hours'} -= 12;
+					};
+				
+					$translated{$field_name} = $tmp->{'hours'} . ":" . $tmp->{'minutes'} . ":" . $tmp->{'seconds'} . " " . $ampm;
+				}else{
+					$translated{$field_name} = $tmp->{'hours'} . ":" . $tmp->{'minutes'} . ":" . $tmp->{'seconds'};
+				}
+			}
+		}
+	}
+	
+	#translate enum -> string
+	foreach my $field_name (keys %translated){
+		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "enum"){
+			
+			if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'enum'} == 2){
+			
+				# deal with customized non-sequential enum value lists (sheesh, BMC)
+				my %inverse = ();
+				foreach my $t3 (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}}){
+					$inverse{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}->{$t3}} = $t3;
+				}
+				if (exists($inverse{$translated{$field_name}})){
+					$translated{$field_name} = $inverse{$translated{$field_name}};
+				}else{
+					$self->{'errstr'} = "ConvertFieldsToHumanReadable: non-sequential custom enum list, cannot match enum value (" . $field_name . "/" . $translated{$field_name} . ")";
+					warn($self->{'errstr'}) if $self->{'Debug'};
+					return(undef);
+				}
+			}else{
+				# just a straight up array position, as god intended.
+				if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}->[$translated{$field_name}] =~/^\s*$/){
+					$self->{'errstr'} = "ConvertFieldsToHumanReadable: sequential custom enum list, cannot match enum value (" . $field_name . "/" . $translated{$field_name} . ")";
+					warn($self->{'errstr'}) if $self->{'Debug'};
+					return(undef);
+				}else{
+					$translated{$field_name} = $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}->[$translated{$field_name}];
+				}
+			}
+		}
+	}
+	
+	#send the translated data back
+	return(\%translated);
+}
+
+## DeleteObjectFromServer #######################
+## for chrissakes ... be careful with this one!
+## ObjectName	=> "Remedy:ARSTools:CrazyActiveLink",
+## ObjectName	=> "active_link"
+sub DeleteObjectFromServer {
+	my ($self, %p) = @_;
+	
+	#make sure we got our required and default options, yadda yadda
+	foreach ('ObjectName', 'ObjectType'){
+		if ((! exists($p{$_})) || ($p{$_} =~/^\s*$/)){
+			$self->{'errstr'} = "DeleteObjectFromServer: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#here we go
+	if 	($p{'ObjectType'} =~/^active_link$/i){
+		#ars_DeleteActiveLink
+		ARS::ars_DeleteActiveLink( $self->{'ctrl'}, $p{'ObjectName'} ) || do {
+			$self->{'errstr'} = "DeleteObjectFromServer: failed to delete object from server: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+	}elsif	($p{'ObjectType'} =~/^char_menu$/i){
+		#ars_DeleteCharMenu
+		ARS::ars_DeleteCharMenu( $self->{'ctrl'}, $p{'ObjectName'} ) || do {
+			$self->{'errstr'} = "DeleteObjectFromServer: failed to delete object from server: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+	}elsif	($p{'ObjectType'} =~/^escalation$/i){
+		#ars_DeleteEscalation
+		ARS::ars_DeleteEscalation( $self->{'ctrl'}, $p{'ObjectName'} ) || do {
+			$self->{'errstr'} = "DeleteObjectFromServer: failed to delete object from server: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+	}elsif	($p{'ObjectType'} =~/^filter$/i){
+		#ars_DeleteFilter
+		ARS::ars_DeleteFilter( $self->{'ctrl'}, $p{'ObjectName'} ) || do {
+			$self->{'errstr'} = "DeleteObjectFromServer: failed to delete object from server: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+	}elsif	($p{'ObjectType'} =~/^schema$/i){
+		#ars_DeleteSchema
+		ARS::ars_DeleteSchema( $self->{'ctrl'}, $p{'ObjectName'}, 1 ) || do {
+			
+			## NOTE: setting deleteOption to 1 (force_delete). whoo chile! be careful!
+			
+			$self->{'errstr'} = "DeleteObjectFromServer: failed to delete object from server: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		};
+	}else{
+		$self->{'errstr'} = "DeleteObjectFromServer: I don't know how to delete the specified ObjectType: " . $p{'ObjectType'};
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return (undef);
+	}
+	
+	return (1);
+	
+}
+
+
+## ExportDefinition #############################
+## export a serialized ARS Object from the ARServer in def or xml format
+## on success return the serialized object, on error undef
+## ObjectName	=> "Remedy:ARSTools:CrazyActiveLink",
+## ObjectType	=> "active_link",
+## DefinitionType	=> "xml"
+## NOTE: ISS04238696 on BMC ... XML export will not work with overlays on form defs
+sub ExportDefinition {
+	my ($self, %p) = @_;
+	
+	#make sure we got our required and default options, yadda yadda
+	foreach ('DefinitionType', 'ObjectName', 'ObjectType'){
+		if ((! exists($p{$_})) || ($p{$_} =~/^\s*$/)){
+			$self->{'errstr'} = "ExportDefinition: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	if ($p{'DefinitionType'} =~/^xml$/){
+		$p{'DefinitionType'} = "xml";
+		$p{'DefinitionType'} = "xml_" . $p{'ObjectType'}; ## <-- yeah that's how it works
+	}elsif ($p{'DefinitionType'} =~/^def$/){
+		$p{'DefinitionType'} = "def";
+	}else{
+		$self->{'errstr'} = "ExportDefinition: unknown 'DefinitionType' value: " . $p{'DefinitionType'};
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return (undef);
+	}
+	
+	#"don't dude me, bro!" -- ghost adventures
+	(my $def = ARS::ars_Export(
+		$self->{'ctrl'},
+		'',			## <-- '' = NULL = "get definition including all views" (if it's a form of course)
+		'',			## <-- arsperl says '' is the same as &ARS::AR_VUI_TYPE_NONE, and I can dig it
+		$p{'ObjectType'},
+		$p{'ObjectName'}
+	)) || do {
+		$self->{'errstr'} = "ExportDefinition: failed to export definition: " . $ARS::ars_errstr;
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return (undef);
+	};
+	
+	return($def);
+}
+
+
+## ImportDefinition #############################
+## import a serialized ARS Object, this will be either in *.def or *.xml format
+## return 1 on success. return undef on failure.
+## I s'pose it goes without saying, but you know ...
+## be careful, m'kay?
+## options:
+##	* Definition			=> $string_containing_serialized_def
+##	* DefinitionType		=> "xml" | "def"
+##	* ObjectName			=> $the_name_of_the_object_to_import
+##	* ObjectType			=> "schema" | "filter" | "active_link" | "char_menu" | "escalation" | "dist_map" | "container" | "dist_pool" 
+##	* UpdateCache			=> 1 | 0 (default 0)
+##	* OverwriteExistingObject	=> 1 | 0 (default 0)
+sub ImportDefinition {
+	
+	my ($self, %p) = @_;
+	
+	#make sure we got our required and default options, yadda yadda
+	foreach ('Definition', 'DefinitionType', 'ObjectName', 'ObjectType'){
+		if ((! exists($p{$_})) || ($p{$_} =~/^\s*$/)){
+			$self->{'errstr'} = "ImportDefinition: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	$p{'UpdateCache'} = 0 if ($p{'UpdateCache'}) != 1;
+	$p{'OverwriteExistingObject'} = 0 if ($p{'OverwriteExistingObject'}) != 1;
+	if ($p{'DefinitionType'} =~/^xml$/){
+		$p{'DefinitionType'} = "xml";
+		$p{'ObjectType'} = "xml_" . $p{'ObjectType'}; ## <-- yeah that's how it works
+	}elsif ($p{'DefinitionType'} =~/^def$/){
+		$p{'DefinitionType'} = "def";
+	}else{
+		$self->{'errstr'} = "ImportDefinition: unknown 'DefinitionType' value: " . $p{'DefinitionType'};
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return (undef);
+	}
+	
+	#set up the import mode
+	my $import_mode = \&ARS::AR_IMPORT_OPT_CREATE;
+	if ($p{'OverwriteExistingObject'} == 1){ $import_mode = \&ARS::AR_IMPORT_OPT_OVERWRITE; }
+	
+	#like the shoe company says ...
+	(my $result = ARS::ars_Import(
+		$self->{'ctrl'},
+		$import_mode,
+		$p{'Definition'},
+		$p{'ObjectType'},
+		$p{'ObjectName'}
+	)) || do {
+		$self->{'errstr'} = "ImportDefinition: failed to import definition: " . $ARS::ars_errstr;
+		warn ($self->{'errstr'}) if $self->{'Debug'};
+		return(undef);
+	};
+	
+	#deal with updating the cache if we gotta
+	if (($p{'UpdateCache'} == 1) && (($p{'ObjectType'} eq "schema") || ($p{'ObjectType'} eq "xml_schema"))){
+		
+		#see if we got it in our schema list already
+		my $found = ();
+		foreach my $schema (@{$self->{'Schemas'}}){ if ($schema eq $p{'ObjectName'}){ $found = 1; last; } }
+		if ($found =~/^\s*$/){ push (@{$self->{'Schemas'}}, $p{'ObjectName'}); }
+		$self->{'staleConfig'} = 1;
+		warn ("ImportDefinition: inserting new object into cache ...") if ($self->{'Debug'});
+		$self->LoadARSConfig();
+
+	}
+	
+	return(1);
+}
+
+## TunnelSQL ####################################
+## tunnel some sql on the API
+sub TunnelSQL {
+	my ($self, %p) = @_;
+	
+	#make sure we got our required and default options, yadda yadda
+	foreach ('SQL'){
+		if ((! exists($p{$_})) || ($p{$_} =~/^\s*$/)){
+			$self->{'errstr'} = "TunnelSQL: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	my $data = ARS::ars_GetListSQL(
+		$self->{'ctrl'},
+		$p{'SQL'}
+	) || do {
+		$self->{'errstr'} = "TunnelSQL: failed SQL: " . $ARS::ars_errstr;
+		warn ($self->{'errstr'}) if ($self->{'Debug'});
+		return (undef);
+	};
+	
+	#we might not have gotten anything
+	if ($data->{'numMatches'} == 0){
+		$self->{'errstr'} = "no records returned";
+		warn ($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}else{
+		return($data->{'rows'});
+	}
+}
 
