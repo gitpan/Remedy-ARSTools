@@ -20,4 +20,6 @@ no_index:
 requires:
   ARS: 1.72
   Data::DumpXML: 1.03
-version: 1.06
+  Date::Parse: 2.3
+  Time::Interval: 1.233
+version: 1.07

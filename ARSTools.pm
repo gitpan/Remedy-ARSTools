@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.06;
+$VERSION	= 1.07;
 
 
 

@@ -1,16 +1,26 @@
 Revision history for Perl extension Remedy::ARSTools.
 
-1.06		Wed Jan 22 11:37:36 CST 2014
-		added automatic date, datetime & time_of_day string<->integer conversions
+1.07		Mon Jan 27 16:49:06 CST 2014
+		forgot to update dependencies in Makefile.PL to include Date::Parse and Time::Interval
+
+1.06		Mon Jan 27 11:23:05 CST 2014
+			* added automatic date, datetime & time_of_day string<->integer conversions on 
+			  CreateTicket, ModifyTicket, MergeTicket and Query
+			* added ImportDefinition
+			* added 'dataType' to cache field datastructure
+			* added '__Remedy_ARSTools_Version' to cache datastructure
+			* added automatic rebuild of cache for upgraded Remedy::ARSTools version
+			* enhanced non-sequential custom enum decoding / encoding
+			* added user-definable GMT offset for date/time conversions
+			* enhanced ParseDBDiary to use datetime conversions
+			* added EncodeDBDiary
+			* added automatic diary datastructure -> string encoding for MergeTickets
+			* added ExportDefinition
+			* added TunnelSQL
+			* added DeleteObjectFromServer
+			* added more complete test suite w/optional test form import
 		
-		Additionally, ya boy got a new job at NASA and hoo boy do I need/get to use perl a lot around here!
-		That means some more updates to Remedy::ARSTools are coming. 
-		Behold my to-do list suckas:
-		
-			* SQLQuery
-			  this is an interface specifically for tunnelling SQL Queries over the API, but returning
-			  nice user-friendly output not unlike DBIx::YAWM. Perhaps with enum translation and datetime
-			  conversion tacked on. dare to dream.
+		some things on my to-do list:
 			  
 			* FindFilterInGuides
 			  find all the filter guides containing the specified filter name
@@ -18,15 +28,10 @@ Revision history for Perl extension Remedy::ARSTools.
 			* FindActiveLinkInGuides
 			  find all the active link guides containing the specified active link name
 			  
-			* ExportDefinition
-			  export the definition in def or xml of the specified object, identified by type and name
-			  note: XML def export doesn't work on forms with overlays, I have a ticket with BMC open on that
-			  
-			* ImportDefinition
-			  import a def or xml definition of an object (obviously, you gotta be an admin for that).
-
 			* some kinda hack to make CreateTicket not return undef every time you create a ticket on a join form
 			  though presently I'm stumped. Querying by $LASTID$ in that scenario actually core dumped my 8.1 test arserver.
+			  suggestions welcome.
+			  
 			  
 1.05            Tue Jun 12 23:30:02 GMT 2012
                 fixed bug in CheckFields causing enums to return null value match
