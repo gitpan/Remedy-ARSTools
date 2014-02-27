@@ -1,5 +1,16 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.08		Wed Feb 26 13:45:57 CST 2014
+			* fixed inverted logic in CheckFields / TruncateOK, prevented field lengths from being truncated
+			* fixed error in CreateTicket causing CheckFields output to be returned instead of undef when CheckFields fails
+			* fixed CheckFields date & time_of_day conversions to not die on NULL field values
+			
+		adding this to the to-do list
+			* CoalesceRecords  -> add two records together, spit out complete record with updates
+			* IntersectRecords -> take two records, spit out only the fields they have in common
+			* SubtractRecords  -> take two records, spit out only the fields that are different
+			* CompareRecord	   -> take two records, compare them. spit out a 1 if they're the same 0 if they're different
+
 1.07		Mon Jan 27 16:49:06 CST 2014
 		forgot to update dependencies in Makefile.PL to include Date::Parse and Time::Interval
 

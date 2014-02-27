@@ -22,4 +22,4 @@ requires:
   Data::DumpXML: 1.03
   Date::Parse: 2.3
   Time::Interval: 1.233
-version: 1.07
+version: 1.08

@@ -19,13 +19,126 @@ use Date::Parse;
 use Time::Interval;
 
 #class global vars
-use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr);
+use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.07;
+$VERSION	= 1.08;
 
-
+## this is a global lookup table for currencies
+our %currency_codes = (
+	'ARS' => { 'name' => "Argentina Peso", 'ascii_prefix_sequence' => ['36'] },
+	'AUD' => { 'name' => "Australia Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'BSD' => { 'name' => "Bahamas Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'BBD' => { 'name' => "Barbados Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'BMD' => { 'name' => "Bermuda Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'BND' => { 'name' => "Brunei Darussalam Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'CAD' => { 'name' => "Canada Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'KYD' => { 'name' => "Cayman Islands Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'CLP' => { 'name' => "Chile Peso", 'ascii_prefix_sequence' => ['36'] },
+	'COP' => { 'name' => "Colombia Peso", 'ascii_prefix_sequence' => ['36'] },
+	'XCD' => { 'name' => "East Caribbean Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'SVC' => { 'name' => "El Salvador Colon", 'ascii_prefix_sequence' => ['36'] },
+	'FJD' => { 'name' => "Fiji Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'GYD' => { 'name' => "Guyana Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'HKD' => { 'name' => "Hong Kong Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'LRD' => { 'name' => "Liberia Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'MXN' => { 'name' => "Mexico Peso", 'ascii_prefix_sequence' => ['36'] },
+	'NAD' => { 'name' => "Namibia Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'NZD' => { 'name' => "New Zealand Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'SGD' => { 'name' => "Singapore Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'SBD' => { 'name' => "Solomon Islands Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'SRD' => { 'name' => "Suriname Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'TVD' => { 'name' => "Tuvalu Dollar", 'ascii_prefix_sequence' => ['36'] },
+	'USD' => { 'name' => "United States Dollar", 'ascii_prefix_sequence' => ['36'], 'match_preference' => 1 },
+	'HNL' => { 'name' => "Honduras Lempira", 'ascii_prefix_sequence' => ['76'] },
+	'BWP' => { 'name' => "Botswana Pula", 'ascii_prefix_sequence' => ['80'] },
+	'GTQ' => { 'name' => "Guatemala Quetzal", 'ascii_prefix_sequence' => ['81'] },
+	'ZAR' => { 'name' => "South Africa Rand", 'ascii_prefix_sequence' => ['82'] },
+	'SOS' => { 'name' => "Somalia Shilling", 'ascii_prefix_sequence' => ['83'] },
+	'GHC' => { 'name' => "Ghana Cedis", 'ascii_prefix_sequence' => ['162'] },
+	'EGP' => { 'name' => "Egypt Pound", 'ascii_prefix_sequence' => ['163'] },
+	'FKP' => { 'name' => "Falkland Islands (Malvinas) Pound", 'ascii_prefix_sequence' => ['163'] },
+	'GIP' => { 'name' => "Gibraltar Pound", 'ascii_prefix_sequence' => ['163']},
+	'GGP' => { 'name' => "Guernsey Pound", 'ascii_prefix_sequence' => ['163'] },
+	'IMP' => { 'name' => "Isle of Man Pound", 'ascii_prefix_sequence' => ['163'] },
+	'JEP' => { 'name' => "Jersey Pound", 'ascii_prefix_sequence' => ['163'] },
+	'LBP' => { 'name' => "Lebanon Pound", 'ascii_prefix_sequence' => ['163'] },
+	'SHP' => { 'name' => "Saint Helena Pound", 'ascii_prefix_sequence' => ['163'] },
+	'SYP' => { 'name' => "Syria Pound", 'ascii_prefix_sequence' => ['163'] },
+	'GBP' => { 'name' => "United Kingdom Pound", 'ascii_prefix_sequence' => ['163'], 'match_preference' => 1 },
+	'CNY' => { 'name' => "China Yuan Renminbi", 'ascii_prefix_sequence' => ['165'] },
+	'JPY' => { 'name' => "Japan Yen", 'ascii_prefix_sequence' => ['165'], 'match_preference' => 1 },
+	'AWG' => { 'name' => "Aruba Guilder", 'ascii_prefix_sequence' => ['402'] },
+	'ANG' => { 'name' => "Netherlands Antilles Guilder", 'ascii_prefix_sequence' => ['402'], 'match_preference' => 1 },
+	'AFN' => { 'name' => "Afghanistan Afghani", 'ascii_prefix_sequence' => ['1547'] },
+	'THB' => { 'name' => "Thailand Baht", 'ascii_prefix_sequence' => ['3647'] },
+	'KHR' => { 'name' => "Cambodia Riel", 'ascii_prefix_sequence' => ['6107'] },
+	'CRC' => { 'name' => "Costa Rica Colon", 'ascii_prefix_sequence' => ['8353'] },
+	'TRL' => { 'name' => "Turkey Lira", 'ascii_prefix_sequence' => ['8356'] },
+	'NGN' => { 'name' => "Nigeria Naira", 'ascii_prefix_sequence' => ['8358'] },
+	'MUR' => { 'name' => "Mauritius Rupee", 'ascii_prefix_sequence' => ['8360'] },
+	'NPR' => { 'name' => "Nepal Rupee", 'ascii_prefix_sequence' => ['8360'], 'match_preference' => 1 },
+	'PKR' => { 'name' => "Pakistan Rupee", 'ascii_prefix_sequence' => ['8360'] },
+	'SCR' => { 'name' => "Seychelles Rupee", 'ascii_prefix_sequence' => ['8360'] },
+	'LKR' => { 'name' => "Sri Lanka Rupee", 'ascii_prefix_sequence' => ['8360'] },
+	'KPW' => { 'name' => "Korea (North) Won", 'ascii_prefix_sequence' => ['8361'] },
+	'KRW' => { 'name' => "Korea (South) Won", 'ascii_prefix_sequence' => ['8361'] , 'match_preference' => 1 },
+	'ILS' => { 'name' => "Israel Shekel", 'ascii_prefix_sequence' => ['8362'] },
+	'VND' => { 'name' => "Viet Nam Dong", 'ascii_prefix_sequence' => ['8363'] },
+	'EUR' => { 'name' => "Euro Member Countries", 'ascii_prefix_sequence' => ['8364'] },
+	'LAK' => { 'name' => "Laos Kip", 'ascii_prefix_sequence' => ['8365'] },
+	'MNT' => { 'name' => "Mongolia Tughrik", 'ascii_prefix_sequence' => ['8366'] },
+	'CUP' => { 'name' => "Cuba Peso", 'ascii_prefix_sequence' => ['8369'] },
+	'PHP' => { 'name' => "Philippines Peso", 'ascii_prefix_sequence' => ['8369'], 'match_preference' => 1 },
+	'UAH' => { 'name' => "Ukraine Hryvna", 'ascii_prefix_sequence' => ['8372'] },
+	'IRR' => { 'name' => "Iran Rial", 'ascii_prefix_sequence' => ['65020'] },
+	'OMR' => { 'name' => "Oman Rial", 'ascii_prefix_sequence' => ['65020'] },
+	'QAR' => { 'name' => "Qatar Riyal", 'ascii_prefix_sequence' => ['65020'] },
+	'SAR' => { 'name' => "Saudi Arabia Riyal", 'ascii_prefix_sequence' => ['65020'], 'match_preference' => 1 },
+	'YER' => { 'name' => "Yemen Rial", 'ascii_prefix_sequence' => ['65020'] },
+	'RSD' => { 'name' => "Serbia Dinar", 'ascii_prefix_sequence' => ['1044', '1080', '1085', '46'] },
+	'HRK' => { 'name' => "Croatia Kuna", 'ascii_prefix_sequence' => ['107', '110'] },
+	'DKK' => { 'name' => "Denmark Krone", 'ascii_prefix_sequence' => ['107', '114'], 'match_preference' => 1 },
+	'EEK' => { 'name' => "Estonia Kroon", 'ascii_prefix_sequence' => ['107', '114'] },
+	'ISK' => { 'name' => "Iceland Krona", 'ascii_prefix_sequence' => ['107', '114'] },
+	'NOK' => { 'name' => "Norway Krone", 'ascii_prefix_sequence' => ['107', '114'] },
+	'SEK' => { 'name' => "Sweden Krona", 'ascii_prefix_sequence' => ['107', '114'] },
+	'MKD' => { 'name' => "Macedonia Denar", 'ascii_prefix_sequence' => ['1076', '1077', '1085'] },
+	'RON' => { 'name' => "Romania New Leu", 'ascii_prefix_sequence' => ['108', '101', '105'] },
+	'BGN' => { 'name' => "Bulgaria Lev", 'ascii_prefix_sequence' => ['1083', '1074'] },
+	'KZT' => { 'name' => "Kazakhstan Tenge", 'ascii_prefix_sequence' => ['1083', '1074'], 'match_preference' => 1 },
+	'KGS' => { 'name' => "Kyrgyzstan Som", 'ascii_prefix_sequence' => ['1083', '1074'] },
+	'UZS' => { 'name' => "Uzbekistan Som", 'ascii_prefix_sequence' => ['1083', '1074'] },
+	'AZN' => { 'name' => "Azerbaijan New Manat", 'ascii_prefix_sequence' => ['1084', '1072', '1085'] },
+	'RUB' => { 'name' => "Russia Ruble", 'ascii_prefix_sequence' => ['1088', '1091', '1073'] },
+	'BYR' => { 'name' => "Belarus Ruble", 'ascii_prefix_sequence' => ['112', '46'] },
+	'PLN' => { 'name' => "Poland Zloty", 'ascii_prefix_sequence' => ['122', '322'] },
+	'UYU' => { 'name' => "Uruguay Peso", 'ascii_prefix_sequence' => ['36', '85'] },
+	'BOB' => { 'name' => "Bolivia Boliviano", 'ascii_prefix_sequence' => ['36', '98'] },
+	'VEF' => { 'name' => "Venezuela Bolivar", 'ascii_prefix_sequence' => ['66', '115'] },
+	'PAB' => { 'name' => "Panama Balboa", 'ascii_prefix_sequence' => ['66', '47', '46'] },
+	'BZD' => { 'name' => "Belize Dollar", 'ascii_prefix_sequence' => ['66', '90', '36'] },
+	'NIO' => { 'name' => "Nicaragua Cordoba", 'ascii_prefix_sequence' => ['67', '36'] },
+	'CHF' => { 'name' => "Switzerland Franc", 'ascii_prefix_sequence' => ['67', '72', '70'] },
+	'HUF' => { 'name' => "Hungary Forint", 'ascii_prefix_sequence' => ['70', '116'] },
+	'PYG' => { 'name' => "Paraguay Guarani", 'ascii_prefix_sequence' => ['71', '115'] },
+	'JMD' => { 'name' => "Jamaica Dollar", 'ascii_prefix_sequence' => ['74', '36'] },
+	'CZK' => { 'name' => "Czech Republic Koruna", 'ascii_prefix_sequence' => ['75', '269'] },
+	'BAM' => { 'name' => "Bosnia and Herzegovina Convertible Marka", 'ascii_prefix_sequence' => ['75', '77'] },
+	'ALL' => { 'name' => "Albania Lek", 'ascii_prefix_sequence' => ['76', '101', '107'] },
+	'LVL' => { 'name' => "Latvia Lat", 'ascii_prefix_sequence' => ['76', '115'] },
+	'LTL' => { 'name' => "Lithuania Litas", 'ascii_prefix_sequence' => ['76', '116'] },
+	'MZN' => { 'name' => "Mozambique Metical", 'ascii_prefix_sequence' => ['77', '84'] },
+	'TWD' => { 'name' => "Taiwan New Dollar", 'ascii_prefix_sequence' => ['78', '84', '36'] },
+	'IDR' => { 'name' => "Indonesia Rupiah", 'ascii_prefix_sequence' => ['82', '112'] },
+	'BRL' => { 'name' => "Brazil Real", 'ascii_prefix_sequence' => ['82', '36'] },
+	'DOP' => { 'name' => "Dominican Republic Peso", 'ascii_prefix_sequence' => ['82', '68', '36'] },
+	'MYR' => { 'name' => "Malaysia Ringgit", 'ascii_prefix_sequence' => ['82', '77'] },
+	'PEN' => { 'name' => "Peru Nuevo Sol", 'ascii_prefix_sequence' => ['83', '47', '46'] },
+	'TTD' => { 'name' => "Trinidad and Tobago Dollar", 'ascii_prefix_sequence' => ['84', '84', '36'] },
+	'ZWD' => { 'name' => "Zimbabwe Dollar", 'ascii_prefix_sequence' => ['90', '36'] }
+);
 
 
 ## new ############################################
@@ -368,7 +481,7 @@ sub CheckFields {
 		}
 	};
 	
-	#examine each field for length, enum & datetime conversion
+	#examine each field for length, enum, datetime & currency conversion
 	foreach my $field (keys %{$p{'Fields'}}){
 		
 		#make sure we "know" the field
@@ -396,7 +509,7 @@ sub CheckFields {
 		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "time"){
 			
 			##straight up epoch conversion, son (if it's not already)
-			if ($p{'Fields'}->{$field} !~/^\d{1,10}&/){
+			if (($p{'Fields'}->{$field} !~/^\d{1,10}&/) && ($p{'Fields'}->{$field} !~/^\s*$/)){
 				my $epoch = str2time($p{'Fields'}->{$field}) || do {
 					$errors .= "CheckFields epoch conversion: cannot convert datetime value: " . $p{'Fields'}->{$field};
 					next;
@@ -408,7 +521,7 @@ sub CheckFields {
 			
 			##the number of days elapsed since 1/1/4713, BCE (ya rly)
 			##note: this will only work with dates > 1 BCE. (sorry, historians with remedy systems).
-			if ($p{'Fields'}->{$field} !~/^\d{1,7}$/){
+			if (($p{'Fields'}->{$field} !~/^\d{1,7}$/) && ($p{'Fields'}->{$field} !~/^\s*$/)){
 				my $epoch = str2time($p{'Fields'}->{$field}) || do {
 					$errors .= "CheckFields epoch conversion: cannot convert datetime value: " . $p{'Fields'}->{$field};
 					next;
@@ -490,6 +603,95 @@ sub CheckFields {
 				$errors .= "CheckFields time-of-day: unparseable time-of-day string";
 				next;
 			}
+			
+		## 1.08 hotness: handle currency conversion
+		}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "currency"){
+			
+			## if the user sent us a hash, we're just gonna trust they know what they're up to
+			if (ref($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'}) ne "HASH"){
+				
+				## who gives a f*** about an oxford comma? 
+				## (yes I know that's not what this is, but I just wanted to drop that line so bad)
+				$p{'Fields'}->{$field} =~s/,//g;
+				
+				#yeah and any kind of whitespace whatsoever gotta go too ...
+				$p{'Fields'}->{$field} =~s/\s//g;
+				
+				## ok ... so ... look. 99% of the time this is gonna be USD. 
+				## so I'm gonna start by just looking for that. If we don't find it, then it gets interesting.
+				if ($p{'Fields'}->{$field} =~/^\$/){
+					$p{'Fields'}->{$field} =~s/\$//g;
+					my $value = ();
+					foreach my $chr (split(//, $p{'Fields'}->{$field})){ 
+						if (($chr =~/\d/) || ($chr =~/\./)){ $value .= $chr; }
+					}
+					$p{'Fields'}->{$field} = {
+						'conversionDate' => time(),
+						'currencyCode'	 => "USD",
+						'value'		 => $value,
+						'funcList'	 => [ {'currencyCode' => "USD", 'value' => $value } ]
+					};
+				}else{
+					## ok, it ain't a dollar.
+					## let's start by separating the prefix from the value
+					## we'll dumbly presume that anything which ain't a digit or a dot (or whitespace) is the prefix
+					my @prefix = (); my $value = ();
+					foreach my $chr (split(//, $p{'Fields'}->{$field})){ 
+						if (($chr =~/\d/) || ($chr =~/\./)){ 
+							$value .= $chr; 
+						}elsif ($chr !~/^\s*$/){
+							push(@prefix, ord($chr));
+						}
+					}
+					#this ain't pretty
+					my @matches = ();
+					foreach my $currCode(keys (%currency_codes)){
+						## check for length match
+						if ($#{$currency_codes{$currCode}->{'ascii_prefix_sequence'}} == $#prefix){
+							my $idx = 0; my $match = 0;
+							foreach my $chr (@prefix){
+								if ($chr == $currency_codes{$currCode}->{'ascii_prefix_sequence'}->[$idx]){ $match = 1; }else{ $match = 0; }
+								$idx ++;
+							}
+							if ($match == 1){ 
+								push(@matches, $currCode); 
+								if ((exists($currency_codes{$currCode}->{'match_preference'})) && ($currency_codes{$currCode}->{'match_preference'} == 1)){ last; }
+							}
+						}
+					}
+					if ($#matches >= 0){
+						#first pass ... if we have one with the match_preference, we'll use that ...
+						my $found = 0;
+						foreach my $match (@matches){
+							if ((exists($currency_codes{$match}->{'match_preference'})) && ($currency_codes{$match}->{'match_preference'} == 1)){
+								warn ("[CheckFields (currency)] identified '" . $p{'Fields'}->{$field} . "' as " . $currency_codes{$match}->{'name'} . " (" . $match . ")") if ($self->{'Debug'});
+								$p{'Fields'}->{$field} = {
+									'conversionDate' => time(),
+									'currencyCode'	 => $match,
+									'value'		 => $value,
+									'funcList'	 => [ {'currencyCode' => $match, 'value' => $value} ]
+								};
+								$found = 1;
+								last;
+							}
+						}
+						#second pass ... just take the first one
+						if ($found == 0){
+							my $match = shift(@matches);
+							warn ("[CheckFields (currency)] identified '" . $p{'Fields'}->{$field} . "' as " . $currency_codes{$match}->{'name'} . " (" . $match . ")") if ($self->{'Debug'});
+							$p{'Fields'}->{$field} = {
+								'conversionDate' => time(),
+								'currencyCode'	 => $match,
+								'value'		 => $value
+							};
+						}
+					}else{
+						#unidentifiable currency
+						$errors .= "CheckFields (currency): cannot identify currency for field: " . $field . " (" . $p{'Fields'}->{$field} . ")";
+						next;
+					}
+				}
+			}
 		}
 		
 		#1.06 hotness: convert diary fields to strings. This is useful for MergeTicket where we're trying
@@ -504,15 +706,15 @@ sub CheckFields {
 			};
 		}
 		
-		#check length
+		#check length (GAH!! 1.08 fixes inverted logic here)
 		if (
 			( exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'}) ) &&
 			( $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} > 0 ) &&
-			( length($p{'Fields'}->{$field}) <= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} )
+			( length($p{'Fields'}->{$field}) > $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} )
 		){
 			#field is too long
 			if ($p{'TruncateOK'} > 0){
-			$p{'Fields'}->{$field} = substr($p{'Fields'}->{$field}, 0, $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'});
+				$p{'Fields'}->{$field} = substr($p{'Fields'}->{$field}, 0, $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'});
 			}else{
 				$errors .= "CheckFieldLengths: " . $field . "too long (max length is ";
 				$errors .= $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'length'} . ")\n";
@@ -635,10 +837,11 @@ sub CreateTicket {
 			return (undef);
 		}
 	};
+	## fixed this logic to return undef instead of errors on version 1.08
 	if (length($errors) > 0){
 		$self->{'errstr'} = "CreateTicket: error on CheckFields: " . $errors;
 		warn ($self->{'errstr'}) if $self->{'Debug'};
-		return ($errors);
+		return (undef);
 	}
 	
 	#ars wants an argument list like ctrl, schema, field_name, field_value ...
@@ -1757,6 +1960,23 @@ sub ConvertFieldsToHumanReadable {
 			}
 		}
 	}
+	
+	
+	#translate currency -> string
+	foreach my $field_name (keys (%translated)){
+		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "currency"){
+			if (ref($translated{$field_name}) eq "HASH"){
+				if (exists ($currency_codes{$translated{$field_name}->{'currencyCode'}})){
+					my $prefix = ();
+					foreach my $ascii (@{$currency_codes{$translated{$field_name}->{'currencyCode'}}->{'ascii_prefix_sequence'}}){
+						$prefix .= chr($ascii);
+					}
+					$translated{$field_name} = $prefix . $translated{$field_name}->{'value'};
+				}
+			}
+		}
+	}
+	
 	
 	#send the translated data back
 	return(\%translated);
