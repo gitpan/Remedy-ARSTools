@@ -1,5 +1,8 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.09		Tue Apr  8 08:31:29 CDT 2014
+			* fixed regex on line 512, preventing CheckFields properly dealing with already-epoch-encoded datetime values
+
 1.08		Wed Feb 26 13:45:57 CST 2014
 			* fixed inverted logic in CheckFields / TruncateOK, prevented field lengths from being truncated
 			* fixed error in CreateTicket causing CheckFields output to be returned instead of undef when CheckFields fails

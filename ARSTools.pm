@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.08;
+$VERSION	= 1.09;
 
 ## this is a global lookup table for currencies
 our %currency_codes = (
@@ -508,8 +508,8 @@ sub CheckFields {
 		#1.06 hotness: check and convert datetime, date & time_of_day
 		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field}->{'dataType'} eq "time"){
 			
-			##straight up epoch conversion, son (if it's not already)
-			if (($p{'Fields'}->{$field} !~/^\d{1,10}&/) && ($p{'Fields'}->{$field} !~/^\s*$/)){
+			##straight up epoch conversion, son (if it's not already) <-- 1.09 fixes this regex
+			if (($p{'Fields'}->{$field} !~/^\d{1,10}$/) && ($p{'Fields'}->{$field} !~/^\s*$/)){
 				my $epoch = str2time($p{'Fields'}->{$field}) || do {
 					$errors .= "CheckFields epoch conversion: cannot convert datetime value: " . $p{'Fields'}->{$field};
 					next;
