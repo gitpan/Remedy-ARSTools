@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.09;
+$VERSION	= 1.15;
 
 ## this is a global lookup table for currencies
 our %currency_codes = (
@@ -166,7 +166,7 @@ sub new {
 	$self->{'Port'} = undef if ($self->{'Port'} !~/^\d+/);
 	$self->{'DateTranslate'}  = 1 if ($self->{'DateTranslate'} =~/^\s*$/);
 	$self->{'TwentyFourHourTimeOfDay'} = 0  if ($self->{'TwentyFourHourTimeOfDay'} =~/^\s*$/);
-	
+	$self->{'OverrideJoinSubmitQuery'} = 0 if ($self->{'OverrideJoinSubmitQuery'} =~/^\s*$/);
 	#default options apply only to ARS >= 1.8001
 	$self->{'Language'} = undef if ($self->{'Language'} =~/^\s*$/);
 	$self->{'AuthString'} = undef if ($self->{'AuthString'} =~/^\s*$/);
@@ -224,6 +224,21 @@ sub LoadARSConfig {
 		
 		#get field data for each schema
 		foreach (@{$self->{'Schemas'}}){
+			
+			## NEW HOTNESS (1.11) -- we have to capture metadata about the form, like primarily ... is it a join form?
+			warn ("getting schema metadata for " . $_) if $self->{'Debug'};
+			my $md_tmp = ARS::ars_GetSchema($self->{'ctrl'}, $_) || do {
+				$self->{'errstr'} = "LoadARSConfig: can't retrieve schema meta-data for: " . $_ . ": " . $ARS::ars_errstr;
+				warn($self->{'errstr'}) if $self->{'Debug'};
+				return(undef);
+			};
+			if ((ref($md_tmp) eq "HASH") && (exists($md_tmp->{'schema'}))){
+				$self->{'ARSConfig'}->{$_}->{'_schema_info'} = $md_tmp->{'schema'};
+			}else{
+				warn("cannot get schema info from this version of the API. CreateTicket will not work against join forms") if ($self->{'Debug'});
+			}
+				
+			## OLD but not busted
 			warn ("getting field list for " . $_) if $self->{'Debug'};
 			
 			#get field list ...
@@ -232,6 +247,7 @@ sub LoadARSConfig {
 				warn($self->{'errstr'}) if $self->{'Debug'};
 				return (undef);
 			};
+			
 			
 			#get meta-data for each field
 			foreach my $field (keys %fields){
@@ -251,6 +267,19 @@ sub LoadARSConfig {
 					return (undef);		  
 				};
 				
+				## 1.15 - stash the field's "option" (i.e. "entry_mode": required, optional or display-only)
+				if (defined($tmp->{'option'})){
+					if ($tmp->{'option'} == 1){
+						$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'entry_mode'} = "required";
+					}elsif ($tmp->{'option'} == 2){
+						$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'entry_mode'} = "optional";
+					}elsif ($tmp->{'option'} == 4){
+						$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'entry_mode'} = "display-only";
+					}else{
+						warn ("LoadARSConfig: encountered unknown 'option' value (" . $tmp->{'option'} . ") on Schema: " . $_ . " / field: " . $field) if ($self->{'Debug'});
+						$self->{'ARSConfig'}->{$_}->{'fields'}->{$field}->{'entry_mode'} = $tmp->{'option'};
+					}
+				}
 				
 				## NEW HOTNESS (1.02)
 				## depending on the C-api version that ARSperl was compiled against, the data we're looking 
@@ -356,12 +385,25 @@ sub LoadARSConfig {
 		$self->{'ARSConfig'} = $self->{'ARSConfig'}->[0];
 		
 		## new for 1.06 ... upgrade the config if it was created with an earlier version of Remedy::ARSTools
-		if ($self->{'ARSConfig'}->{'__Remedy_ARSTools_Version'} < 1.06){
+		if ($self->{'ARSConfig'}->{'__Remedy_ARSTools_Version'} < 1.15){
 			warn("LoadARSConfig: re-generating config generated with earlier version of Remedy::ARSTools") if $self->{'Debug'};
 			$self->{'staleConfig'} = 1;
 			$self->LoadARSConfig();
 		}
 		warn("LoadARSConfig: loaded config from file") if $self->{'Debug'};
+		
+		## new for 1.15 - check the loaded config to make sure it has all of the 'Schemas', if not mark the config stale, and refresh it
+		foreach my $schema (@{$self->{'Schemas'}}){
+			exists($self->{'ARSConfig'}->{$schema}) || do {
+				warn ("LoadARSConfig: loaded cache file missing schema: " . $schema) if ($self->{'Debug'});
+				$self->{'staleConfig'} = 1;
+			};
+		}
+		if ($self->{'staleConfig'} > 0){
+			warn ("LoadARSConfig: refreshing cache from server ...");
+			$self->LoadARSConfig();
+		}
+		
 		return(1);
 	}
 }
@@ -799,6 +841,248 @@ sub CheckFields {
 }
 
 
+## PushFields #####################################
+## aka 'CreateOrUpdate'. This is an perl analog
+## of the ARS "Push Fields" action.
+## inputs:
+##	Schema
+##	Fields
+##	QBE
+##	NoMatchAction 	      => "Create" | "Error"
+##	MultipleMatchAction   => "UpdateFirst", "UpdateAll", "Error"
+##	MatchAction	      => "Update", "Error", "Nothing"
+## output:
+##	{
+##		'records'	=> [array,of,records],
+##		'disposition'	=> "created" | "updated" | "matched"
+##	}
+sub PushFields {
+	my ($self, %p) = @_;
+	
+	##
+	## INPUT VALIDATION
+	##
+	
+	#Fields, Schema & QBE are required
+	foreach ('Fields', 'Schema', "QBE"){ 
+		if (! exists($p{$_})){ 
+			$self->{'errstr'} = "PushFields: " . $_ . " is a required option";
+			warn ($self->{'errstr'}) if $self->{'Debug'};
+			return (undef);
+		}
+	}
+	
+	#default options
+	if ($p{'NoMatchAction'} =~/^\s*$/){ $p{'NoMatchAction'} = "Create"; }
+	if ($p{'MultipleMatchAction'} =~/^\s*$/){ $p{'MultipleMatchAction'} = "UpdateFirst"; }
+	if ($p{'MatchAction'} =~/^\s*$/){ $p{'MatchAction'} = "Update"; }
+	$p{'TruncateOK'} = $self->{'TruncateOK'} if (! exists($p{'TruncateOK'}));
+	
+	#validate option values
+	if ($p{'NoMatchAction'} =~/^create$/i){
+		$p{'NoMatchAction'} = "Create";
+	}elsif ($p{'NoMatchAction'} =~/^error$/i){
+		$p{'NoMatchAction'} = "Error";
+	}else{
+		$self->{'errstr'} = "PushFields: unknown value on 'NoMatchAction' argument";
+		warn($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+	if ($p{'MultipleMatchAction'} =~/^updatefirst$/i){
+		$p{'MultipleMatchAction'} = "UpdateFirst";
+	}elsif ($p{'MultipleMatchAction'} =~/^updateall$/i){
+		$p{'MultipleMatchAction'} = "UpdateAll";
+	}elsif ($p{'MultipleMatchAction'} =~/^error$/i){
+		$p{'MultipleMatchAction'} = "Error";
+	}else{
+		$self->{'errstr'} = "PushFields: unknown value on 'MultipleMatchAction' argument";
+		warn($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+	if ($p{'MatchAction'} =~/^update$/i){
+		$p{'MatchAction'} = "Update";
+	}elsif ($p{'MatchAction'} =~/^error$/i){
+		$p{'MatchAction'} = "Error";
+	}elsif ($p{'MatchAction'} =~/^nothing$/i){
+		$p{'MatchAction'} = "Nothing";
+	}else{
+		$self->{'errstr'} = "PushFields: unknown value on 'MatchAction' argument";
+		warn($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+	if ($p{'AlternateSortOrder'} =~/^createdateasc/i){
+		$p{'AlternateSortOrder'} = "CreateDateAscending";
+	}elsif ($p{'AlternateSortOrder'} =~/^createdatedesc/i){
+		$p{'AlternateSortOrder'} = "CreateDateDescending";
+	}elsif ($p{'AlternateSortOrder'} =~/^modifieddateasc/i){
+		$p{'AlternateSortOrder'} = "ModifiedDateAscending";
+	}elsif ($p{'AlternateSortOrder'} =~/^modifieddatedesc/i){
+		$p{'AlternateSortOrder'} = "ModifiedDateDescending";
+	}elsif ($p{'AlternateSortOrder'} !~/^\s*$/){
+		$self->{'errstr'} = "PushFields: unknown value on 'AlternateSortOrder' argument";
+		warn($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+
+	#make sure we know the schema
+	if (! exists($self->{'ARSConfig'}->{$p{'Schema'}})){
+		$self->{'errstr'} = "PushFields: unknown 'Schema': " . $p{'Schema'};
+		warn($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+	
+	#identify fields 1, 3, & 6 on this schema
+	my $field_one = (); my $field_three = (); my $field_six = ();
+	foreach my $ft (keys (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}})){
+		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$ft}->{'id'} == 1){
+			$field_one = $ft;
+		}elsif ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$ft}->{'id'} == 3){
+			$field_three = $ft;
+		}elsif ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$ft}->{'id'} == 6){
+			$field_six = $ft;
+		}
+		if (($field_one !~/^\s*$/) && ($field_three !~/^\s*$/) && ($field_six !~/^\s*$/)){ last; }
+	}
+	#we can't do this if we didn't find field 1
+	if ($field_one =~/^\s*$/){
+		$self->{'errstr'} = "PushFields: cannot identify field with ID '1' (entry_id) on this schema: " . $p{'Schema'};
+		warn ($self->{'errstr'}) if ($self->{'Debug'});
+		return(undef);
+	}
+	#if alternate sort order is specified then we can't do it without 3 & 6 too ..
+	if ($p{'AlternateSortOrder'} !~/^\s*$/){
+		if ($field_three =~/^\s*$/){
+			$self->{'errstr'} = "PushFields: cannot identify field with ID '3' (create_date) on this schema: " . $p{'Schema'};
+			warn ($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}
+		if ($field_six =~/^\s*$/){
+			$self->{'errstr'} = "PushFields: cannot identify field with ID '6' (modified_date) on this schema: " . $p{'Schema'};
+			warn ($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}
+	}
+	
+	##
+	## doin' the thang ...
+	##
+	
+	
+	#step 1: identify existing record(s) or lack thereof
+	my $records_found = 1;
+	my $previous_flag = $self->{'DateTranslate'};
+	$self->{'DateTranslate'} = 0;
+	my $matches = $self->Query(
+		Schema	=> $p{'Schema'},
+		Fields	=> [ $field_one, $field_three, $field_six ],
+		QBE	=> $p{'QBE'}
+	) || do {
+		#if we legitimately didn't find any ...
+		if ($self->{'errstr'} =~/no matching records$/){
+			$records_found = 0;
+			warn("PushFields: no records match qualification") if ($self->{'Debug'});
+		}else{
+			#Houston, we have a problem ...
+			$self->{'errstr'} = "PushFields: cannot execute query for existing record: " . $self->{'errstr'};
+			warn($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}
+	};
+	$self->{'DateTranslate'} = $previous_flag;
+	if ($records_found == 0){
+		
+		## handle no match actions
+		if ($p{'NoMatchAction'} eq "Error"){
+			$self->{'errstr'} = "PushFields: no records match qualification and 'MatcNoMatchAction' is set to " . '"Error"';
+			warn($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}else{
+			
+			## go make one
+			my $entry_id = $self->CreateTicket(
+				Schema	=> $p{'Schema'},
+				Fields	=> $p{'Fields'}
+			) || do {
+				$self->{'errstr'} = "PushFields: cannot create ticket: " . $self->{'errstr'};
+				warn($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef);
+			};
+			warn("PushFields: created " . $entry_id . " on " . $p{'Schema'}) if ($self->{'Debug'});
+			return({
+				'records' 	=> [ $entry_id ],
+				'disposition'	=> "created"
+			});
+		}
+		
+	}else{
+		
+		## handle match errors
+		if (($#{$matches} > 0) && ($p{'MultipleMatchAction'} eq "Error")){
+			$self->{'errstr'} = "PushFields: " . ($#{$matches} + 1) . " records match qualification and 'MultipleMatchAction' is set to " . '"Error" matching records: ';
+			foreach my $t(@{$matches}){ $self->{'errstr'} .= " " . $t->{$field_one}; }
+			warn($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}elsif ($p{'MatchAction'} eq "Error"){
+			$self->{'errstr'} = "PushFields: " . ($#{$matches} + 1) . " records match qualification and 'MatchAction' is set to " . '"Error"';
+			warn($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
+		}elsif ($p{'MatchAction'} eq "Nothing"){
+			my @matched = ();
+			foreach my $t (@{$matches}){ push(@matched, $t->{$field_one}); }
+			return({
+				'records'	=> \@matched,
+				'disposition'	=> "matched"
+			});
+		}
+		
+		## alternate sort order 
+		if     ($p{'AlternateSortOrder'} eq "CreateDateAscending"){
+			warn ("PushFields: AlternateSortOrder is CreateDateAscending") if ($self->{'Debug'});
+			@{$matches} = sort {$a->{$field_three} <=> $b->{$field_three}} @{$matches};
+		}elsif ($p{'AlternateSortOrder'} eq "CreateDateDescending"){
+			warn ("PushFields: AlternateSortOrder is CreateDateDescending") if ($self->{'Debug'});
+			@{$matches} = sort {$b->{$field_three} <=> $a->{$field_three}} @{$matches};
+		}elsif ($p{'AlternateSortOrder'} eq "ModifiedDateAscending"){
+			warn ("PushFields: AlternateSortOrder is ModifiedDateAscending") if ($self->{'Debug'});
+			@{$matches} = sort {$a->{$field_six} <=> $b->{$field_six}} @{$matches};
+		}elsif ($p{'AlternateSortOrder'} eq "ModifiedDateDescending"){
+			warn ("PushFields: AlternateSortOrder is ModifiedDateDescending") if ($self->{'Debug'});
+			@{$matches} = sort {$b->{$field_six} <=> $a->{$field_six}} @{$matches};
+		}
+		
+		## REAL TEMP
+		if ($self->{'Debug'}){
+			warn ("PushFields: echoing sort order ...");
+			my $ord = 0;
+			foreach my $t (@{$matches}){
+				$ord ++;
+				warn ("\t[" . $ord . "]: " . $t->{$field_one} . " / " . gmtime($t->{$field_three}) . " / " . gmtime($t->{$field_six}));
+			}
+		}
+		
+		## get to updatin' ...
+		my $cnt = 0; my @records_updated = ();
+		foreach my $match (@{$matches}){
+			$cnt ++;
+			$self->ModifyTicket(
+				Schema	=> $p{'Schema'},
+				Fields	=> $p{'Fields'},
+				Ticket	=> $match->{$field_one}
+			) || do {
+				$self->{'errstr'} = "PushFields: cannot modify record " . $cnt . " of " . ($#{$matches} + 1) . " [" . $match->{$field_one} . "]: " . $self->{'errstr'};
+				warn($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef);
+			};
+			warn ("PushFields: updated record " . $cnt . " of " . ($#{$matches} + 1) . " [" . $match->{$field_one} . "]") if ($self->{'Debug'}); 
+			push (@records_updated, $match->{$field_one});
+			if (($#{$matches} > 0) && ($p{'MultipleMatchAction'} eq "UpdateFirst") && ($cnt == 1)){ last; }
+		}
+		return ({
+			'records'	=> \@records_updated,
+			'disposition'	=> "updated"
+		});
+	}
+}
 
 
 ## CreateTicket ###################################
@@ -812,7 +1096,7 @@ sub CreateTicket {
 	#both Fields and Schema are required
 	foreach ('Fields', 'Schema'){ 
 		if (! exists($p{$_})){ 
-			$self->{'errstr'} = "ModifyTicket: " . $_ . " is a required option";
+			$self->{'errstr'} = "CreateTicket: " . $_ . " is a required option";
 			warn ($self->{'errstr'}) if $self->{'Debug'};
 			return (undef);
 		}
@@ -856,9 +1140,24 @@ sub CreateTicket {
 		);
 	}
 	
-	#for those about to rock, we solute you!
+	## NEW HOTNESS (1.11)
+	## join forms, baby. The API lets us submit into them, but it's only a submit at the application level
+	## nothing fires off in the DB. Presumably filters catch the submit transaction and handle setting up 
+	## the required supporting records, yielding the new record you requested in the join form.
+	## why bother with this? Because basically AST:<everything> is a join form in ITSM, and through the
+	## spaghetti logic that exists therein, the AST:* forms are apparently the *only* supported way to
+	## shoehorn data into CMDB manually. Shoehorning data into CMDB manually, as it turns out, is like
+	## pretty much what you're going to be doing for the rest of your career unless you're in the sadly
+	## dwindling "custom remedy development" sceene. 
+	##
+	## and so in the service of squeezing another ounce of juice out of this dying product,
+	## I present unto you ... support for join forms on the CreateTicket call ...
 	my $entry_id = ();
 	$entry_id = ARS::ars_CreateEntry( $self->{'ctrl'}, $p{'Schema'}, @args ) || do {
+		
+		## echo the api message
+		my $tmp = $ARS::ars_errstr;
+		warn("API Message: " . $ARS::ars_errstr) if (($tmp !~/^\s*$/) && ($self->{'Debug'}));
 		
 		#if it was an ARERR 161 (staleLogin), reconnect and try it again
 		if ($ARS::ars_errstr =~/ARERR \#161/){
@@ -875,11 +1174,124 @@ sub CreateTicket {
 				return (undef);
 				warn ($self->{'errstr'}) if $self->{'Debug'};
 			};
+			
+		#if it was a join form ...
+		}elsif ((exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'_schema_info'})) && ($self->{'ARSConfig'}->{$p{'Schema'}}->{'_schema_info'}->{'schemaType'} =~/^join/i)){
+			
+			if ($self->{'OverrideJoinSubmitQuery'} == 1){
+				$self->{'errstr'} = "CreateTicket: submit to join form, post-submit query for ars_CreateEntry result is disabled in config. returning undef (though this call may have succeeded)";
+				warn ($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef)
+			}
+			
+			warn ("[CreateTicket] submit to join form, querying for ars_CreateEntry result ...") if ($self->{'Debug'});
+			
+			## just build a dumb qualification based on all the fields (of the right type) that were sent in 
+			my $QBE_str = ();
+			if ($p{'JoinFormPostSubmitQuery'} =~/^\s*$/){
+				my @QBE = ();
+				foreach my $qt (keys %{$p{'Fields'}}){
+					if (
+						(exists($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'})) &&
+						(
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^time$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^date$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^time_of_day$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^integer$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^real$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^decimal$/i) ||
+							($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^enum$/i) ||
+							(
+								($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^char$/i) &&
+								($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'length'} > 0)
+							)
+						)
+					){
+					
+						#skip display-only fields
+						if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'entry_mode'} eq "display-only"){ next; }
+						
+						#replace "" with $NULL$
+						my $fieldvalue = $p{'Fields'}->{$qt};
+						if ($fieldvalue =~/^\s*$/){ $fieldvalue = '$NULL$'; }
+						
+						#no single-quotes on enum integer literals
+						if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'dataType'} =~/^enum$/i){
+							push (@QBE, "'" . $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'id'} . "' = " . $fieldvalue);
+						#otherwise let 'er rip
+						}else{
+							push (@QBE, "'" . $self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$qt}->{'id'} . "' = " . '"' . $fieldvalue . '"');
+						}
+					}
+				}
+				$QBE_str = join  (" AND ", @QBE);
+			}else{
+				$QBE_str = $p{'JoinFormPostSubmitQuery'};
+			}
+			
+			## identify the name of field 1 and 3 in this schema (sheesh!)
+			my $field_one = (); my $field_three = ();
+			foreach my $ft (keys (%{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}})){
+				if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$ft}->{'id'} == 1){
+					$field_one = $ft;
+				}elsif ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$ft}->{'id'} == 3){
+					$field_three = $ft;
+				}
+				if (($field_one !~/^\s*$/) && ($field_three !~/^\s*$/)){ last; }
+			}
+			if ($field_one =~/^\s*$/){
+				$self->{'errstr'} = "CreateTicket: submit to join form *may* have failed. Cannot query for ars_CreateEntry result. Cannot identify field 1 for this schema";
+				warn ($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef);
+			}
+			if ($field_three =~/^\s*$/){
+				$self->{'errstr'} = "CreateTicket: submit to join form *may* have failed. Cannot query for ars_CreateEntry result. Cannot identify field 3 for this schema";
+				warn ($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef);
+			}
+			
+			## query for it
+			my $tmp = $self->Query(
+				Schema	=> $p{'Schema'},
+				Fields	=> [ $field_one, $field_three ],
+				QBE	=> $QBE_str
+			) || do {
+				$self->{'errstr'} = "CreateTicket: submit to join form *may* have failed. Cannot query for ars_CreateEntry result: " . $self->{'errstr'};
+				warn ($self->{'errstr'}) if ($self->{'Debug'});
+				return(undef);
+			};
+			
+			## lawdy, if we got back more than one ...
+			if ($#{$tmp} > 0){
+				
+				## I guess you know ... sort 'em and take the most recent.
+				@{$tmp} = sort{ $a->{$field_three} <=> $b->{$field_three} } @{$tmp};
+				my $the_one = shift(@{$tmp});
+				my $now = time();
+				my $interval = ($now - $the_one->{$field_three});
+				my $interval_str = parseInterval(
+					seconds	=> $interval,
+					Small	=> 1
+				);
+				warn ("CreateTicket: submit to join form: found " . ($#{$tmp} + 1) . " results matching submission, returning most recent: " . $the_one->{$field_one} . " (created " . $interval_str . " ago)") if ($self->{'Debug'});
+				$entry_id = $the_one->{$field_one};
+				
+			}else{
+				warn ("CreateTicket: submit to join form: identified: " . $tmp->[0]->{$field_one}) if ($self->{'Debug'});
+				$entry_id = $tmp->[0]->{$field_one};
+			}
+		}else{
+			## either it was a join form and the config is fouled or it wasn't a join form, either way it's time to return undef
+			$self->{'errstr'} = "CreateTicket: create operation failed with error: " . $ARS::ars_errstr;
+			warn ($self->{'errstr'}) if ($self->{'Debug'});
+			return(undef);
 		}
-		$self->{'errstr'} = "CreateTicket: can't create ticket in: " . $p{'Schema'} . " / " . $ARS::ars_errstr;
-		warn ($self->{'errstr'}) if $self->{'Debug'};
-		return (undef);
 	};
+		
+	## NOTE TO SELF: put something out here to catch passive API errors
+	if (($entry_id !~/^\s*$/) && ($ARS::ars_errstr !~/^\s*$/)){
+		warn ("CreateTicket: success with passive API message: " . $ARS::ars_errstr) if ($self->{'Debug'});
+	}
 	
 	#back at ya, baby!
 	return ($entry_id);
@@ -1541,6 +1953,8 @@ sub QueryNew {
 		#also make a hash based on device_id (to re-encode results)
 		$revMap{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$_}->{'id'}} = $_;
 	}
+	
+	warn ("QueryNew: qualifying: [schema]: " . $p{'Schema'} . "[qbe]: " . $p{'QBE'}) if ($self->{'Debug'});
 	
 	#qualify the query
 	my $qual = ();

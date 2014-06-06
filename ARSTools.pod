@@ -58,6 +58,25 @@ definition caching.
 		Fields	=> ['array', 'of', 'fieldNames', 'to', 'retrieve']
 	) || die $Remedy->{'errstr'};
 	
+	#create or update (PushFields)
+	my $result = $Remedy->PushFields(
+		Schema			=> "User",
+		QBE			=> "'Full Name' = " . '"SpongeBob SquarePants"',
+		NoMatchAction		=> "Create",
+		MultipleMatchAction	=> "UpdateFirst",
+		MatchAction		=> "Update",
+		Fields	=> {
+			'Login Name'                     => "sbsqrpnts",
+			'Full Name'                      => "SpongeBob SquarePants",
+			'Password'   	                 => "fryc00k",
+			'Group List'	                 => "Work Order Master",
+			'License Type'                   => "Fixed",
+			'Email Address'                  => 'sbsqrpnts@krustykrab.com',
+			'Status'	 		 => "Current",
+			'Force Password Change On Login' => "Yes"
+		}
+	) || die $Remedy->{'errstr'};
+	
 	#delete a ticket
 	$Remedy->DeleteTicket(
 		Schema	=> $schema_name,
@@ -323,9 +342,18 @@ automaticlly convert date, datetime, and time_of_day field values to and from hu
 (see "A NOTE ON DATE, DATETIME & TIME OF DAY VALUES" above).
 
 =item	TwentyFourHourTimeOfDay
+
 if NULL, this option will default to a value of 0. To override, you must explicitly set a non-zero value.
-If a non-zerip value is specified, this will cause the Query method to translate time_of_day values into
+If a non-zero value is specified, this will cause the Query method to translate time_of_day values into
 24-hour (aka "military time") values (no AM or PM designation)
+
+=item	OverrideJoinSubmitQuery
+
+if NULL, this option will default to a value of 0. To override, you must explicitly set a non-zero value.
+If a value of "1" is specified on this option, the CreateTicket function will NOT attempt to query for 
+a the new entry_id(s) created when submitting to a JOIN form. All submits to join forms will return the
+undef value and be treated as an exception.
+
 
 =back
 
@@ -427,6 +455,30 @@ on Diary fields for this function. If you send a diary data structure (see outpu
 field here, Remedy::ARSTools *will* try to serialize it into a whole diary entry ... which will likely create some 
 seriously amuzing diary entries.
 
+A WORD ABOUT JOIN FORMS. Technically you cannot "create a ticket" in a join form. However, the ARS API will indeed let
+you create a SUBMIT TRANSACTION against a join form. The submit transaction, in and of itself does absolutely nothing,
+other than to fire the submit filters for the join form. So, presuming you have filters in place to fire on submit and
+push appropriate records to the supporting forms, then indeed, the submit transaction will "create a ticket in the join
+form". As it turns out this is basically how the entire AST:* class of forms in ITSM works. 
+
+As of version 1.11, the CreateTicket function will abstract submit into join forms for you. It will create the submit
+transaction on the API with the given Schema and Field values, and will then attempt to subsequently query the join form
+for the record(s) that may or may not have been created by workflow as a result of the submit transaction. CreateTicket
+attempts to do this by using the supplied Field values to generate a QBE string to query by. If we find something,
+we return the entry_id (field 1) value and treat it as a successful submit. If we find nothing, we return undef and 
+treat it as an exception.
+
+In the case that we find MORE THAN ONE record in the join form matching the input Fields, CreateTicket will sort them
+by create date and return the most recently created one. This may or may not indicate success, but there's not any
+way for ARSTools to reasonably know this, so we treat the condition as success and return the entry_id. Setting the object's 
+Debug flag to 1 will allow you to view details in this scenario.
+
+If you wish to override the ARSTools automatically generated post-submit query for join forms, specify an alternate
+QBE string on the JoinFormPostSubmitQuery option.
+
+NOTE: if you DO NOT want ARSTools to attempt to identify new records created by CreateTicket calls to join forms, set the
+OverrideJoinSubmitQuery option to 1 on the object prior to executing the CreateTicket call. 
+
 =head2	syntax
 
 	my $ticket_number = $Remedy->CreateTicket( [ options ] ) || die $Remedy->{'errstr'};
@@ -445,6 +497,13 @@ the name of the schema in which the record should be created
 
 a hash reference in the form of { 'field_name' => $value ... }, where each 'field_name' is the name of a
 field in 'Schema' and each $value is a value to place in that field.
+
+=item	JoinFormPostSubmitQuery (optional)
+
+IF you are submitting to a join form, and do NOT wish to use ARSTools' automatically generated post-submit
+query (for instance if workflow modifies the values of fields you send in on the create transaction), you
+can specify a QBE string on this option, and it will be used instead of the auto-generated query to look 
+for the record created from the join form submit transaction.
 
 =back
 
@@ -484,6 +543,94 @@ a hash reference in the form of { 'field_name' => $value ... }, where each 'fiel
 field in 'Ticket' and $value is the value to set on that field.
 
 =back
+
+
+
+=head1	PushFields
+
+This is a perl implementation of the ARS "Push-Fields" action. This allows you to create or update a record
+(or records) matching a given qualification. The qualification is specified in QBE (as with the Search fuction).
+
+=head2	syntax
+
+	$result = $Remedy->PushFields( [ options ] ) || die $Remedy->{'errstr'};
+	
+=head2	return value
+
+The PushFields function returns a hash reference containing two keys:
+
+=over
+
+=item	records
+
+this is an array rerference containing a list of entry ids in the specified Schema that were either created or modified
+
+=item	disposition
+
+this will be one of three strings: "created" (indicating that each of the entry id values in 'records' was newly created),
+"updated" (indicationg that each of the 'records' was modified to contain the provided field values), or "matched" (indicating
+the records matched the QBE, but that MatchAction was set to "Nothing".
+
+=back
+
+=head2	options
+
+the following options are accepted by the PushFields function:
+
+=over
+
+=item	Schema
+
+indicates the schema in which we will be creating or modifying records
+
+=item	QBE
+
+this is the QBE string to qualify matching records (for more info, see the 'Search' function notes)
+
+=item	Fields
+
+this is a hash reference containing field/value pairs to create or update records in the specified Schema (see also 'CreateTicket', 'ModifyTicket')
+
+=item	NoMatchAction	(optional)
+
+if no value is given, this option defaults to a value of "Create". This tells the function how to behave if no record(s) match the given QBE 
+qualification. If given a value of "Create", the function will create a new record in the target Schema, if a value of "Error" is given, the 
+function will return the undef value, treating a no-match condition as an exception.
+
+=item	MultipleMatchAction	(optional)
+
+if no value is given, this option defaults to a value of "UpdateFirst". This tells the function how to behave if multiple records match the given
+QBE qualification. If given a value of "UpdateFirst", the function will update ONLY the first record returned by the API on the search (this should
+correspond to the form's result list sort order, as the ARS PushFields function does). If a value of "UpdateAll" is given, the function will update
+all records returned from the QBE search. If "Error" is given, the function will return the undef value and treat a multiple-match condition as an
+exception.
+
+=item	MatchAction	(optional)
+
+if no value is given, this option defaults to a value of "Update". This tells the function how to behave if ANY record(s) match the given QBE 
+qualification. If a value of "Update" is specified, the function will update the record(s) with the given field values. If "Error" is specified
+the function will return the undef value and treat an any-match condition as an exception. If "Nothing" is specified no action will be taken
+in an any-match condition, but the entry_ids of the matched records will be returned with a 'disposition' of "matched".
+
+=item	AlternateSortOrder	(optional)
+
+If the 'MultipleMatchAction' is "UpdateFirst" or "UpdateAll", by default the records are updated in the sort order returned from the API (which
+should correspond to the sort order set on the Schema's properties. This option allows you to override the default sort order with one of four
+alternate sort orders:
+
+=over
+
+=item	CreateDateAscending
+=item	CreateDateDescending
+=item	ModifiedDateAscending
+=item	ModifiedDateDescending
+
+=back
+
+Obviously, this option has the most impart to the "UpdateFirst" MultipleMatchAction as it determines which record is modified.
+
+=back
+
 
 
 

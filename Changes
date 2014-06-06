@@ -1,50 +1,85 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.15		Fri May 30 11:41:50 CDT 2014
+
+		* LoadARSConfig now captures "entry_mode" on field meta-data ("required", "optional", or "display-only")
+		* LoadARSConfig now checks loaded cache files for missing schemas specified on object instantiation and refreshes config from server
+		* CreateTicket (join form mode) now excludes display-only fields from post-submit query
+		* CreateTicket (join form mode) now interpolates "" as $NULL$ in post-submit query
+		* CreateTicket (join form mode) now allows override of auto-generated post-submit query qualification on JoinFormPostSubmitQuery option
+		
+1.14		Thu May 29 10:55:34 CDT 2014
+
+		* bolted 'AlternateSortOrder' onto PushFields
+
+1.13		Wed May 28 10:17:43 CDT 2014
+
+		* fixed bug on CreateTicket, obscuring ARS::ars_errstr on submit to join form where 
+		  OverrideJoinSubmitQuery is set
+			  
+1.12		Tue May 27 10:04:08 CDT 2014
+
+		* added MatchAction => "Nothing" to PushFields
+
+1.11		Fri May 16 14:28:08 CDT 2014
+
+		* added PushFields function
+		* modified CreateTicket to deal with join forms
+		* TO-DO: update the test suite for these two thangs ...
+
+1.1		Mon May  5 11:18:28 CDT 2014
+
+		* fixed typo in CreateTicket sub causing misleading errstr when required options missing
+
 1.09		Tue Apr  8 08:31:29 CDT 2014
-			* fixed regex on line 512, preventing CheckFields properly dealing with already-epoch-encoded datetime values
+
+		* fixed regex on line 512, preventing CheckFields properly dealing with already-epoch-encoded datetime values
 
 1.08		Wed Feb 26 13:45:57 CST 2014
-			* fixed inverted logic in CheckFields / TruncateOK, prevented field lengths from being truncated
-			* fixed error in CreateTicket causing CheckFields output to be returned instead of undef when CheckFields fails
-			* fixed CheckFields date & time_of_day conversions to not die on NULL field values
+
+		* fixed inverted logic in CheckFields / TruncateOK, prevented field lengths from being truncated
+		* fixed error in CreateTicket causing CheckFields output to be returned instead of undef when CheckFields fails
+		* fixed CheckFields date & time_of_day conversions to not die on NULL field values
 			
 		adding this to the to-do list
-			* CoalesceRecords  -> add two records together, spit out complete record with updates
-			* IntersectRecords -> take two records, spit out only the fields they have in common
-			* SubtractRecords  -> take two records, spit out only the fields that are different
-			* CompareRecord	   -> take two records, compare them. spit out a 1 if they're the same 0 if they're different
+		
+		* CoalesceRecords  -> add two records together, spit out complete record with updates
+		* IntersectRecords -> take two records, spit out only the fields they have in common
+		* SubtractRecords  -> take two records, spit out only the fields that are different
+		* CompareRecord	   -> take two records, compare them. spit out a 1 if they're the same 0 if they're different
 
 1.07		Mon Jan 27 16:49:06 CST 2014
 		forgot to update dependencies in Makefile.PL to include Date::Parse and Time::Interval
 
 1.06		Mon Jan 27 11:23:05 CST 2014
-			* added automatic date, datetime & time_of_day string<->integer conversions on 
-			  CreateTicket, ModifyTicket, MergeTicket and Query
-			* added ImportDefinition
-			* added 'dataType' to cache field datastructure
-			* added '__Remedy_ARSTools_Version' to cache datastructure
-			* added automatic rebuild of cache for upgraded Remedy::ARSTools version
-			* enhanced non-sequential custom enum decoding / encoding
-			* added user-definable GMT offset for date/time conversions
-			* enhanced ParseDBDiary to use datetime conversions
-			* added EncodeDBDiary
-			* added automatic diary datastructure -> string encoding for MergeTickets
-			* added ExportDefinition
-			* added TunnelSQL
-			* added DeleteObjectFromServer
-			* added more complete test suite w/optional test form import
-		
+
+		* added automatic date, datetime & time_of_day string<->integer conversions on 
+		  CreateTicket, ModifyTicket, MergeTicket and Query
+		* added ImportDefinition
+		* added 'dataType' to cache field datastructure
+		* added '__Remedy_ARSTools_Version' to cache datastructure
+		* added automatic rebuild of cache for upgraded Remedy::ARSTools version
+		* enhanced non-sequential custom enum decoding / encoding
+		* added user-definable GMT offset for date/time conversions
+		* enhanced ParseDBDiary to use datetime conversions
+		* added EncodeDBDiary
+		* added automatic diary datastructure -> string encoding for MergeTickets
+		* added ExportDefinition
+		* added TunnelSQL
+		* added DeleteObjectFromServer
+		* added more complete test suite w/optional test form import
+	
 		some things on my to-do list:
 			  
-			* FindFilterInGuides
-			  find all the filter guides containing the specified filter name
-			  
-			* FindActiveLinkInGuides
-			  find all the active link guides containing the specified active link name
-			  
-			* some kinda hack to make CreateTicket not return undef every time you create a ticket on a join form
-			  though presently I'm stumped. Querying by $LASTID$ in that scenario actually core dumped my 8.1 test arserver.
-			  suggestions welcome.
+		* FindFilterInGuides
+		  find all the filter guides containing the specified filter name
+		  
+		* FindActiveLinkInGuides
+		  find all the active link guides containing the specified active link name
+		  
+		* some kinda hack to make CreateTicket not return undef every time you create a ticket on a join form
+		  though presently I'm stumped. Querying by $LASTID$ in that scenario actually core dumped my 8.1 test arserver.
+		  suggestions welcome.
 			  
 			  
 1.05            Tue Jun 12 23:30:02 GMT 2012
