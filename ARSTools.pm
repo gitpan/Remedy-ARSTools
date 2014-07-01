@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.15;
+$VERSION	= 1.16;
 
 ## this is a global lookup table for currencies
 our %currency_codes = (
@@ -1250,7 +1250,11 @@ sub CreateTicket {
 				return(undef);
 			}
 			
+			
+			
 			## query for it
+			my $date_translate_state = $self->{'DateTranslate'};
+			$self->{'DateTranslate'} = 0;
 			my $tmp = $self->Query(
 				Schema	=> $p{'Schema'},
 				Fields	=> [ $field_one, $field_three ],
@@ -1260,12 +1264,13 @@ sub CreateTicket {
 				warn ($self->{'errstr'}) if ($self->{'Debug'});
 				return(undef);
 			};
+			$self->{'DateTranslate'} = $date_translate_state;
 			
 			## lawdy, if we got back more than one ...
 			if ($#{$tmp} > 0){
 				
 				## I guess you know ... sort 'em and take the most recent.
-				@{$tmp} = sort{ $a->{$field_three} <=> $b->{$field_three} } @{$tmp};
+				@{$tmp} = sort{ $b->{$field_three} <=> $a->{$field_three} } @{$tmp};
 				my $the_one = shift(@{$tmp});
 				my $now = time();
 				my $interval = ($now - $the_one->{$field_three});

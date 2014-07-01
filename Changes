@@ -1,5 +1,9 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.16		Tue Jul  1 14:48:35 CDT 2014
+		* fixed sort-order issue on CreateTicket where multiple results match the post-submit query for a 
+		  join form (previous to 1.16 the sort order was not consistent).
+
 1.15		Fri May 30 11:41:50 CDT 2014
 
 		* LoadARSConfig now captures "entry_mode" on field meta-data ("required", "optional", or "display-only")
