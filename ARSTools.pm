@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.16;
+$VERSION	= 1.17;
 
 ## this is a global lookup table for currencies
 our %currency_codes = (
@@ -2289,6 +2289,9 @@ sub ConvertFieldsToHumanReadable {
 			
 			if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "time"){
 			
+			    ## 1.17 - if datetime is null, no conversion necessary
+			    if ($translated{$field_name} =~/^\s*$/){ next; }
+			    
 				#apply the GMT offset should we have one
 				if ($p{'DateConversionTimeZone'} !~/^\s*$/){
 					if ($p{'plusminus'} eq "+"){
@@ -2312,6 +2315,9 @@ sub ConvertFieldsToHumanReadable {
 				
 			}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "date"){
 				
+			    ## 1.17 - if date is null, no conversion necessary
+			    if ($translated{$field_name} =~/^\s*$/){ next; }
+			    
 				#date ... so convoluted
 				#get us back on this side of the first christmas :-/
 				$translated{$field_name} -= 2440588;
@@ -2323,6 +2329,9 @@ sub ConvertFieldsToHumanReadable {
 				
 			}elsif($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "time_of_day"){
 				
+			    ## 1.17 - if time_of_day is null, no conversion necessary
+			    if ($translated{$field_name} =~/^\s*$/){ next; }
+			    
 				#time_of_day
 				my $tmp = parseInterval(seconds => $translated{$field_name}) || do {
 					$self->{'errstr'} = "ConvertFieldsToHumanReadable: can't parse time_of_day integer (" .  $translated{$field_name} . ")";
