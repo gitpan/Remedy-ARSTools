@@ -1,5 +1,8 @@
 Revision history for Perl extension Remedy::ARSTools.
 
+1.18	Mon Sep 29 10:23:48 CDT 2014
+	    * fixed bug in ConvertFieldsToHumanReadable causing null enum field values to evaluate "0"
+
 1.17    Wed Aug 20 13:30:15 CDT 2014
             * fixed bug in ConvertFieldsToHumanReadable causing null datetime, time_of_day and date values to be interpreted as "0"
 

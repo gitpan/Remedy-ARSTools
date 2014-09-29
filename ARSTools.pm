@@ -23,7 +23,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $errstr %currency_codes);
 @ISA 		= qw(Exporter);
 @EXPORT		= qw(&ParseDBDiary &EncodeDBDiary);
 @EXPORT_OK	= qw($VERSION $errstr);
-$VERSION	= 1.17;
+$VERSION	= 1.18;
 
 ## this is a global lookup table for currencies
 our %currency_codes = (
@@ -2362,8 +2362,14 @@ sub ConvertFieldsToHumanReadable {
 	foreach my $field_name (keys %translated){
 		if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'dataType'} eq "enum"){
 			
-			if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'enum'} == 2){
+			## 1.18 fix ... null enums interpret as "0" in array position (guh, thx perl)
+			if ($translated{$field_name} =~/^\s*$/){
+				warn ("ConvertFieldsToHumanReadable [" . $field_name . "] encountered null enum") if ($self->{'Debug'});
 			
+			}elsif ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'enum'} == 2){
+			
+				warn ("ConvertFieldsToHumanReadable [" . $field_name . "] encountered non-linear enum") if ($self->{'Debug'});
+				
 				# deal with customized non-sequential enum value lists (sheesh, BMC)
 				my %inverse = ();
 				foreach my $t3 (keys %{$self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}}){
@@ -2377,6 +2383,9 @@ sub ConvertFieldsToHumanReadable {
 					return(undef);
 				}
 			}else{
+				
+				warn ("ConvertFieldsToHumanReadable [" . $field_name . "] encountered linear enum") if ($self->{'Debug'});
+				
 				# just a straight up array position, as god intended.
 				if ($self->{'ARSConfig'}->{$p{'Schema'}}->{'fields'}->{$field_name}->{'vals'}->[$translated{$field_name}] =~/^\s*$/){
 					$self->{'errstr'} = "ConvertFieldsToHumanReadable: sequential custom enum list, cannot match enum value (" . $field_name . "/" . $translated{$field_name} . ")";
